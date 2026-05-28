@@ -442,16 +442,14 @@ button:disabled{opacity:0.4;cursor:default}
   slR.oninput = function(){ sens[2]=+this.value; $('v-right').textContent=sens[2]; };
   slSpd.oninput = function(){ maxSpeed = +this.value; $('v-speed').textContent = this.value; };
 
-  // --- delegation: click obstacle circle to delete ---
+  // --- click obstacle circle to delete (match by DOM index) ---
   elObs.addEventListener('click', function(e) {
     if (e.target.tagName.toLowerCase() !== 'circle') return;
     e.stopPropagation();
-    for (var i = obstacles.length - 1; i >= 0; i--)
-      if (Math.abs(obstacles[i].x - parseFloat(e.target.getAttribute('cx'))) < 0.5 &&
-          Math.abs(obstacles[i].y - parseFloat(e.target.getAttribute('cy'))) < 0.5) {
-        obstacles.splice(i, 1);
-        return;
-      }
+    var idx = Array.prototype.indexOf.call(elObs.children, e.target);
+    if (idx >= 0 && idx < obstacles.length) {
+        obstacles.splice(idx, 1);
+    }
   });
 
   // --- click empty space to create obstacle ---
