@@ -151,7 +151,8 @@ button:disabled{opacity:0.4;cursor:default}
         posHistory: [],
         perimEscaping: false,
         escapeHeading: 0,
-        perimCooldown: 0
+        perimCooldown: 0,
+        avoidLockout: 0
       };
 
   // --- helpers ---
@@ -351,6 +352,7 @@ button:disabled{opacity:0.4;cursor:default}
       if (ap.avoidState === 'cooldown') {
         if (ap.avoidTimer >= AVOID_COOLDOWN_S) {
           ap.avoidState = 'none'; ap.avoidTimer = 0;
+          ap.avoidLockout = 0.5;
         }
       }
     }
@@ -364,6 +366,8 @@ button:disabled{opacity:0.4;cursor:default}
 
     if (l > 0 && l < obsDist) return [maxSpeed * 0.3, maxSpeed];
     if (r > 0 && r < obsDist) return [maxSpeed, maxSpeed * 0.3];
+
+    if (ap.avoidLockout > 0) { ap.avoidLockout -= dt; return [maxSpeed * 0.5, maxSpeed * 0.5]; }
 
     if (Math.abs(goalErr) < HDG_TOL) return [maxSpeed, maxSpeed];
 
@@ -382,7 +386,7 @@ button:disabled{opacity:0.4;cursor:default}
     sens = [20, 20, 20]; trail = [];
     ap = {
       avoidState: 'none', avoidTimer: 0, avoidTurnDir: null,
-      escapeTimer: 0, escapeDir: 'left', posHistory: [], perimEscaping: false, escapeHeading: 0, perimCooldown: 0
+      escapeTimer: 0, escapeDir: 'left', posHistory: [], perimEscaping: false, escapeHeading: 0, perimCooldown: 0, avoidLockout: 0
     };
     syncSliders();
   }
@@ -442,7 +446,7 @@ button:disabled{opacity:0.4;cursor:default}
   slR.oninput = function(){ sens[2]=+this.value; $('v-right').textContent=sens[2]; };
   slSpd.oninput = function(){ maxSpeed = +this.value; $('v-speed').textContent = this.value; };
 
-  // --- click to add obstacle (right-click to remove) ---
+  // --- click to add/remove obstacles ---
   svm.addEventListener('click', function(e) {
     if (mode === 'real' || dragging || e.button !== 0) return;
     var r = svm.getBoundingClientRect();
@@ -451,23 +455,12 @@ button:disabled{opacity:0.4;cursor:default}
     if (x < 2 || x > PW - 2 || y < 2 || y > PH - 2) return;
     if (Math.hypot(x - startX, y - startY) < DUCK_R + 10) return;
     if (Math.hypot(x - endX, y - endY) < DUCK_R + 10) return;
-    for (var i = 0; i < obstacles.length; i++)
-      if (Math.hypot(x - obstacles[i].x, y - obstacles[i].y) < obstacles[i].r + 10) return;
-    obstacles.push({x: x, y: y, r: 5 + Math.random() * 10});
-  });
-
-  svm.addEventListener('contextmenu', function(e) {
-    e.preventDefault();
-    if (mode === 'real') return;
-    var r = svm.getBoundingClientRect();
-    var x = (e.clientX - r.left) * (PW / r.width);
-    var y = (e.clientY - r.top) * (PH / r.height);
-    for (var i = obstacles.length - 1; i >= 0; i--) {
+    for (var i = obstacles.length - 1; i >= 0; i--)
       if (Math.hypot(x - obstacles[i].x, y - obstacles[i].y) < obstacles[i].r + 5) {
         obstacles.splice(i, 1);
         return;
       }
-    }
+    obstacles.push({x: x, y: y, r: 5 + Math.random() * 10});
   });
 
   // --- drag start/end markers ---
