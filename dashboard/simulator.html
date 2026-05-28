@@ -249,19 +249,6 @@ button:disabled{opacity:0.4;cursor:default}
     for (var k=0; k<obstacles.length; k++)
       oh += '<circle cx="'+obstacles[k].x+'" cy="'+obstacles[k].y+'" r="'+obstacles[k].r+'" fill="#ff4444" fill-opacity="0.3" stroke="#ff6666" stroke-width="1"/>';
     elObs.innerHTML = oh;
-    var circs = elObs.querySelectorAll('circle');
-    for (var c = 0; c < circs.length; c++) {
-      circs[c].onclick = function(e) {
-        e.stopPropagation();
-        var cx = parseFloat(this.getAttribute('cx'));
-        var cy = parseFloat(this.getAttribute('cy'));
-        for (var i = obstacles.length - 1; i >= 0; i--)
-          if (Math.abs(obstacles[i].x - cx) < 0.5 && Math.abs(obstacles[i].y - cy) < 0.5) {
-            obstacles.splice(i, 1);
-            return;
-          }
-      };
-    }
   }
 
   function renderTelemetry() {
@@ -455,7 +442,19 @@ button:disabled{opacity:0.4;cursor:default}
   slR.oninput = function(){ sens[2]=+this.value; $('v-right').textContent=sens[2]; };
   slSpd.oninput = function(){ maxSpeed = +this.value; $('v-speed').textContent = this.value; };
 
-  // --- click to add obstacles ---
+  // --- delegation: click obstacle circle to delete ---
+  elObs.addEventListener('click', function(e) {
+    if (e.target.tagName.toLowerCase() !== 'circle') return;
+    e.stopPropagation();
+    for (var i = obstacles.length - 1; i >= 0; i--)
+      if (Math.abs(obstacles[i].x - parseFloat(e.target.getAttribute('cx'))) < 0.5 &&
+          Math.abs(obstacles[i].y - parseFloat(e.target.getAttribute('cy'))) < 0.5) {
+        obstacles.splice(i, 1);
+        return;
+      }
+  });
+
+  // --- click empty space to create obstacle ---
   svm.addEventListener('click', function(e) {
     if (mode === 'real' || dragging || e.button !== 0) return;
     var p = svgPoint(e);
