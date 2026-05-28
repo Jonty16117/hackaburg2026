@@ -433,19 +433,29 @@ button:disabled{opacity:0.4;cursor:default}
   slR.oninput = function(){ sens[2]=+this.value; $('v-right').textContent=sens[2]; };
   slSpd.oninput = function(){ maxSpeed = +this.value; $('v-speed').textContent = this.value; };
 
-  // --- mousedown on SVG: delete obstacle if hit, else create ---
-  svm.addEventListener('mousedown', function(e) {
+  // --- click empty space to create obstacle ---
+  svm.addEventListener('click', function(e) {
     if (mode === 'real' || dragging || e.button !== 0) return;
     var p = svgPoint(e);
     if (p.x < 2 || p.x > PW - 2 || p.y < 2 || p.y > PH - 2) return;
     if (Math.hypot(p.x - startX, p.y - startY) < DUCK_R + 10) return;
     if (Math.hypot(p.x - endX, p.y - endY) < DUCK_R + 10) return;
-    for (var i = obstacles.length - 1; i >= 0; i--)
-      if (Math.hypot(p.x - obstacles[i].x, p.y - obstacles[i].y) < obstacles[i].r + 5) {
-        obstacles.splice(i, 1);
-        return;
-      }
     obstacles.push({x: p.x, y: p.y, r: 5 + Math.random() * 10});
+  });
+
+  // --- mouseup on obstacle circle to delete ---
+  elObs.addEventListener('mouseup', function(e) {
+    if (e.target.tagName.toLowerCase() !== 'circle') return;
+    e.stopPropagation();
+    var idx = Array.prototype.indexOf.call(elObs.children, e.target);
+    if (idx >= 0 && idx < obstacles.length) {
+        obstacles.splice(idx, 1);
+    }
+  });
+  // stop click from also creating an obstacle on the deleted spot
+  elObs.addEventListener('click', function(e) {
+    if (e.target.tagName.toLowerCase() !== 'circle') return;
+    e.stopPropagation();
   });
 
   // --- drag start/end markers ---
