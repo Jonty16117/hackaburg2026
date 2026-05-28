@@ -125,7 +125,7 @@ button:disabled{opacity:0.4;cursor:default}
       TURN_SP = 0.5, REVERSE_SPD = 0.5,
       MAX_SPD = 100, WB = 30, HDG_TOL = 0.02,
       AVOID_REVERSE_S = 0.5, AVOID_TURN_S = 0.5, AVOID_COOLDOWN_S = 0.3,
-      STUCK_DIST_CM = 8, STUCK_WINDOW_S = 3, STUCK_ESCAPE_S = 1.5,
+      STUCK_DIST_CM = 8, STUCK_WINDOW_S = 1.5,
       ARRIVAL = 20,
       startX = 500, startY = 100, endX = 900, endY = 100;
 
@@ -145,8 +145,6 @@ button:disabled{opacity:0.4;cursor:default}
         avoidState: 'none',
         avoidTimer: 0,
         avoidTurnDir: null,
-        escapeTimer: 0,
-        escapeDir: 'left',
         posHistory: [],
         perimEscaping: false,
         escapeHeading: 0,
@@ -255,7 +253,7 @@ button:disabled{opacity:0.4;cursor:default}
     var inside = duck.x>=1 && duck.x<=PW-1 && duck.y>=1 && duck.y<=PH-1;
     var edges = [duck.x, PW-duck.x, duck.y, PH-duck.y];
     var stateLabel = arrived ? 'ARRIVED' : (!autopilot ? 'IDLE'
-      : (ap.perimEscaping ? 'PERIM' : (ap.escapeTimer > 0 ? 'ESCAPE' : (ap.avoidState !== 'none' ? ap.avoidState.toUpperCase() : 'GO'))));
+      : (ap.perimEscaping ? 'PERIM' : (ap.avoidState !== 'none' ? ap.avoidState.toUpperCase() : 'GO'))));
     $('t-state').textContent = stateLabel;
     $('t-heading').innerHTML = deg(duck.th)+'&deg;';
     $('t-pos').textContent = '('+duck.x.toFixed(0)+', '+duck.y.toFixed(0)+')';
@@ -290,17 +288,10 @@ button:disabled{opacity:0.4;cursor:default}
         }
       }
 
-      if (ap.escapeTimer > 0) {
-        ap.escapeTimer -= dt;
-        return ap.escapeDir === 'left'
-          ? [-REVERSE_SPD, TURN_SP] : [TURN_SP, -REVERSE_SPD];
-      }
-
       if (posStuck) {
-        ap.escapeTimer = STUCK_ESCAPE_S;
-        ap.escapeDir = ap.escapeDir === 'left' ? 'right' : 'left';
-        return ap.escapeDir === 'left'
-          ? [-REVERSE_SPD, TURN_SP] : [TURN_SP, -REVERSE_SPD];
+        ap.avoidState = 'reverse'; ap.avoidTimer = 0;
+        ap.avoidTurnDir = 'left';
+        return [-REVERSE_SPD, -REVERSE_SPD];
       }
     }
 
@@ -382,7 +373,7 @@ button:disabled{opacity:0.4;cursor:default}
     sens = [20, 20, 20]; trail = [];
     ap = {
       avoidState: 'none', avoidTimer: 0, avoidTurnDir: null,
-      escapeTimer: 0, escapeDir: 'left', posHistory: [], perimEscaping: false, escapeHeading: 0, perimCooldown: 0
+      posHistory: [], perimEscaping: false, escapeHeading: 0, perimCooldown: 0
     };
     syncSliders();
   }
@@ -418,7 +409,7 @@ button:disabled{opacity:0.4;cursor:default}
         f: sens[0].toFixed(0), l: sens[1].toFixed(0), r: sens[2].toFixed(0),
         near: Math.min(duck.x,PW-duck.x,duck.y,PH-duck.y).toFixed(0),
         perimEscaping: ap.perimEscaping, avoidState: ap.avoidState,
-        escapeTimer: ap.escapeTimer.toFixed(2), perimCooldown: ap.perimCooldown.toFixed(2)
+        perimCooldown: ap.perimCooldown.toFixed(2)
       });
       if (debugBuf.length > debugLimit) debugBuf.shift();
       var live = {
@@ -427,7 +418,7 @@ button:disabled{opacity:0.4;cursor:default}
         ls: duck.ls.toFixed(2), rs: duck.rs.toFixed(2),
         sf: sens[0].toFixed(0), sl: sens[1].toFixed(0), sr: sens[2].toFixed(0),
         near: Math.min(duck.x,PW-duck.x,duck.y,PH-duck.y).toFixed(0),
-        pe: ap.perimEscaping, as: ap.avoidState, et: ap.escapeTimer.toFixed(2), pc: ap.perimCooldown.toFixed(2)
+        pe: ap.perimEscaping, as: ap.avoidState, pc: ap.perimCooldown.toFixed(2)
       };
       if (debugBuf.length < 3 || debugBuf.length % 3 === 0) {
         fetch('/push', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(live)}).catch(function(){});
@@ -442,23 +433,18 @@ button:disabled{opacity:0.4;cursor:default}
   slR.oninput = function(){ sens[2]=+this.value; $('v-right').textContent=sens[2]; };
   slSpd.oninput = function(){ maxSpeed = +this.value; $('v-speed').textContent = this.value; };
 
-  // --- click obstacle circle to delete (match by DOM index) ---
-  elObs.addEventListener('click', function(e) {
-    if (e.target.tagName.toLowerCase() !== 'circle') return;
-    e.stopPropagation();
-    var idx = Array.prototype.indexOf.call(elObs.children, e.target);
-    if (idx >= 0 && idx < obstacles.length) {
-        obstacles.splice(idx, 1);
-    }
-  });
-
-  // --- click empty space to create obstacle ---
-  svm.addEventListener('click', function(e) {
+  // --- mousedown on SVG: delete obstacle if hit, else create ---
+  svm.addEventListener('mousedown', function(e) {
     if (mode === 'real' || dragging || e.button !== 0) return;
     var p = svgPoint(e);
     if (p.x < 2 || p.x > PW - 2 || p.y < 2 || p.y > PH - 2) return;
     if (Math.hypot(p.x - startX, p.y - startY) < DUCK_R + 10) return;
     if (Math.hypot(p.x - endX, p.y - endY) < DUCK_R + 10) return;
+    for (var i = obstacles.length - 1; i >= 0; i--)
+      if (Math.hypot(p.x - obstacles[i].x, p.y - obstacles[i].y) < obstacles[i].r + 5) {
+        obstacles.splice(i, 1);
+        return;
+      }
     obstacles.push({x: p.x, y: p.y, r: 5 + Math.random() * 10});
   });
 
