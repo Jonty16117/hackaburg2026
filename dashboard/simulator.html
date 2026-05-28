@@ -368,8 +368,8 @@ button:disabled{opacity:0.4;cursor:default}
     if (Math.abs(goalErr) < HDG_TOL) return [maxSpeed, maxSpeed];
 
     var turnDir = Math.sign(goalErr);
-    if (Math.abs(goalErr) > Math.PI / 2) return [-TURN_SP * turnDir, TURN_SP * turnDir];
-    var ratio = Math.abs(goalErr) / (Math.PI / 2);
+    if (Math.abs(goalErr) > 0.3) return [-TURN_SP * turnDir, TURN_SP * turnDir];
+    var ratio = Math.abs(goalErr) / 0.3;
     var innerSpeed = maxSpeed * (1 - ratio * 0.7);
     return goalErr > 0 ? [innerSpeed, maxSpeed] : [maxSpeed, innerSpeed];
   }
@@ -445,14 +445,17 @@ button:disabled{opacity:0.4;cursor:default}
   // --- click to add/remove obstacles ---
   svm.addEventListener('click', function(e) {
     if (mode === 'real' || dragging || e.button !== 0) return;
-    if (e.target.tagName === 'circle' && e.target.parentNode === elObs) {
-      var cx = parseFloat(e.target.getAttribute('cx'));
-      var cy = parseFloat(e.target.getAttribute('cy'));
-      for (var i = obstacles.length - 1; i >= 0; i--)
-        if (Math.abs(obstacles[i].x - cx) < 0.5 && Math.abs(obstacles[i].y - cy) < 0.5) {
-          obstacles.splice(i, 1);
-          return;
-        }
+    var els = document.elementsFromPoint(e.clientX, e.clientY);
+    for (var j = 0; j < els.length; j++) {
+      if (els[j].tagName.toLowerCase() === 'circle' && elObs.contains(els[j])) {
+        var cx = parseFloat(els[j].getAttribute('cx'));
+        var cy = parseFloat(els[j].getAttribute('cy'));
+        for (var i = obstacles.length - 1; i >= 0; i--)
+          if (Math.abs(obstacles[i].x - cx) < 0.5 && Math.abs(obstacles[i].y - cy) < 0.5) {
+            obstacles.splice(i, 1);
+            return;
+          }
+      }
     }
     var p = svgPoint(e);
     if (p.x < 2 || p.x > PW - 2 || p.y < 2 || p.y > PH - 2) return;
