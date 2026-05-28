@@ -1,7 +1,7 @@
 import RPi.GPIO as GPIO
 import time
 
-SPEED_OF_SOUND = 34300  # cm/s at 20°C
+SPEED_OF_SOUND = 34300  # cm/s at 20C
 
 
 class Sonar:
@@ -15,7 +15,7 @@ class Sonar:
 
     def distance_cm(self, timeout=0.04):
         GPIO.output(self.trig, GPIO.HIGH)
-        time.sleep(0.000_01)  # 10µs pulse
+        time.sleep(0.000_01)  # 10us pulse
         GPIO.output(self.trig, GPIO.LOW)
 
         pulse_start = time.time()
@@ -38,24 +38,3 @@ class Sonar:
 
     def cleanup(self):
         GPIO.cleanup([self.trig, self.echo])
-
-
-def demo():
-    s = Sonar()
-    print("RCWL-1655 Sonar Demo — press Ctrl+C to stop")
-    try:
-        while True:
-            d = s.distance_cm()
-            if d is None:
-                print("  out of range")
-            else:
-                print(f"  {d:6.1f} cm")
-            time.sleep(0.5)
-    except KeyboardInterrupt:
-        print("\nDone.")
-    finally:
-        s.cleanup()
-
-
-if __name__ == "__main__":
-    demo()

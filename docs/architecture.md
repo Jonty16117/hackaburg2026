@@ -29,8 +29,7 @@ The DuckBot runs a **sense → think → act** loop on the Raspberry Pi at ~20 H
 | `navigation/perimeter.py` | Virtual boundary: point-in-rectangle, distance-to-edge, bearing-to-center | — |
 | `navigation/brain.py` | 4-state FSM: EXPLORE → AVOID → TURN_TO_CENTER → STUCK | perimeter.py |
 | `navigation/controller.py` | Main ~20 Hz sense→think→act loop + CLI entry point | all above |
-| `detection/` | Camera capture + object detection (future) | OpenCV, TFLite |
-| `scripts/` | Entry points: calibrate.py, run.py, generate_diagram.py | — |
+| `scripts/run.py` | Motor test (manual + auto) + ESC calibration | — |
 
 ## Control Flow
 

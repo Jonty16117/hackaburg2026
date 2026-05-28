@@ -15,7 +15,7 @@ See **[assembly_diagram.jpg](assembly_diagram.jpg)** for a visual wiring diagram
 
 ```bash
 # Calibrate ESCs (run once per setup)
-python -m scripts.calibrate
+python -m scripts.run calibrate
 
 # Test motors
 python -m scripts.run
@@ -46,10 +46,8 @@ hackaburg2026/
 │   ├── perimeter.py          # Virtual boundary awareness
 │   ├── brain.py              # 4-state FSM with smart sonar-scan avoidance
 │   └── controller.py         # Main 20 Hz sense→think→act loop
-├── detection/               # Camera + object detection (future)
 └── scripts/                 # Runnable entry points
-    ├── calibrate.py         # ESC calibration wizard
-    └── run.py               # Motor test (manual + auto sequence)
+    └── run.py               # Motor test + ESC calibration
 ```
 
 ## Hardware Summary

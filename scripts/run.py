@@ -1,18 +1,17 @@
 """Scripted / interactive motor control for DuckBot.
 
 Usage:
-    python -m scripts.run          # choose mode interactively
-    python -m scripts.run auto     # run auto test sequence
-    python -m scripts.run manual   # interactive keyboard control
+    python -m scripts.run              # choose mode interactively
+    python -m scripts.run auto         # run auto test sequence
+    python -m scripts.run manual       # interactive keyboard control
+    python -m scripts.run calibrate    # ESC calibration wizard
 """
 
 import sys
 import time
 import RPi.GPIO as GPIO
 from motors.drive import DuckDrive
-
-LEFT_PIN = 12
-RIGHT_PIN = 13
+from navigation.config import LEFT_PIN, RIGHT_PIN
 
 
 def auto_sequence(drive):
@@ -69,9 +68,14 @@ def manual_control(drive):
         elif cmd.isdigit():
             speed = int(cmd) / 10
             speed = max(0.1, min(1.0, speed))
-            print(f"  speed → {int(speed * 100)}%")
+            print(f"  speed -> {int(speed * 100)}%")
         else:
             print(f"  unknown: {cmd}")
+
+
+def calibrate(drive):
+    print("\n=== ESC CALIBRATION ===")
+    drive.calibrate()
 
 
 def main():
@@ -80,8 +84,8 @@ def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else None
 
     print("DuckBot — Motor Control")
-    print(f"  Left ESC  → GPIO {LEFT_PIN}")
-    print(f"  Right ESC → GPIO {RIGHT_PIN}")
+    print(f"  Left ESC  -> GPIO {LEFT_PIN}")
+    print(f"  Right ESC -> GPIO {RIGHT_PIN}")
 
     drive = DuckDrive(LEFT_PIN, RIGHT_PIN)
 
@@ -90,12 +94,16 @@ def main():
             auto_sequence(drive)
         elif mode == "manual":
             manual_control(drive)
+        elif mode == "calibrate":
+            calibrate(drive)
         else:
-            m = input("\nMode: [a]uto  [m]anual  [q]uit: ").strip().lower()
+            m = input("\nMode: [a]uto  [m]anual  [c]alibrate  [q]uit: ").strip().lower()
             if m == "a":
                 auto_sequence(drive)
             elif m == "m":
                 manual_control(drive)
+            elif m == "c":
+                calibrate(drive)
     finally:
         drive.cleanup()
         print("GPIO cleaned up.")

@@ -38,18 +38,14 @@ except ImportError:
     PERIMETER_CM = [(0, 0), (1000, 0), (1000, 200), (0, 200)]
     START_X_CM = 500; START_Y_CM = 100; START_HEADING_RAD = 0.0
     END_X_CM = 900; END_Y_CM = 100
-    BRAIN_CFG = {
-        "OBSTACLE_THRESHOLD_CM": 50, "PERIMETER_MARGIN_CM": 30,
-        "EXPLORE_SPEED": 0.4, "TURN_SPEED": 0.5,
-        "MAX_SPEED_CM_S": 100, "WHEEL_BASE_CM": 30,
-        "HEADING_TOLERANCE_RAD": 0.26, "LOOP_HZ": 20,
-    }
+    BRAIN_CFG = {"OBSTACLE_THRESHOLD_CM": 50, "PERIMETER_MARGIN_CM": 30,
+                 "EXPLORE_SPEED": 0.4, "TURN_SPEED": 0.5,
+                 "MAX_SPEED_CM_S": 100, "WHEEL_BASE_CM": 30,
+                 "HEADING_TOLERANCE_RAD": 0.26, "LOOP_HZ": 20}
     Odometry = None; Perimeter = None; Brain = None; State = None
 
 try:
-    import RPi.GPIO as GPIO
-    from motors.drive import DuckDrive
-    from sensors.sonar import Sonar
+    import RPi.GPIO
     HAS_HARDWARE = True
 except ImportError:
     HAS_HARDWARE = False
@@ -78,15 +74,9 @@ async def get_config():
     return {
         "perimeter_cm": PERIMETER_CM,
         "brain_cfg": BRAIN_CFG,
-        "start": {
-            "x": START_X_CM,
-            "y": START_Y_CM,
-            "theta": START_HEADING_RAD,
-        },
-        "end": {
-            "x": END_X_CM,
-            "y": END_Y_CM,
-        },
+        "start": {"x": START_X_CM, "y": START_Y_CM,
+                  "theta": START_HEADING_RAD},
+        "end": {"x": END_X_CM, "y": END_Y_CM},
     }
 
 
@@ -112,46 +102,28 @@ async def stream(request: Request):
 def _nav_loop():
     if not HAS_HARDWARE:
         return
-    GPIO.setmode(GPIO.BCM)
-    GPIO.setwarnings(False)
-    drive = DuckDrive(LEFT_PIN, RIGHT_PIN)
-    sonar = Sonar(SONAR_TRIG, SONAR_ECHO)
-    odom = Odometry(START_X_CM, START_Y_CM, START_HEADING_RAD,
-                    BRAIN_CFG["WHEEL_BASE_CM"], BRAIN_CFG["MAX_SPEED_CM_S"])
-    perim = Perimeter(PERIMETER_CM)
-    brain = Brain(perim, BRAIN_CFG)
-    ll, lr = 0.0, 0.0
-    lt = time.time()
-    try:
-        while True:
-            now = time.time()
-            dt = max(now - lt, 0.001)
-            lt = now
-            odom.update(ll, lr, dt)
-            d = sonar.distance_cm()
-            x, y, theta = odom.position()
-            ls, rs = brain.decide(d, x, y, theta, dt)
-            drive.drive_speeds(ls, rs)
-            ll, lr = ls, rs
-            ap = brain._avoid_phase.name if brain.state == State.AVOID else None
-            with _lock:
-                _state.update({
-                    "x_cm": round(x, 1), "y_cm": round(y, 1),
-                    "theta_rad": round(theta, 4),
-                    "left_speed": round(ls, 4), "right_speed": round(rs, 4),
-                    "sonar_front": round(d, 1) if d else None,
-                    "brain_state": brain.state.name, "avoid_phase": ap,
-                    "inside": perim.is_inside(x, y),
-                    "edge_cm": round(perim.distance_to_edge(x, y), 1),
-                })
-            time.sleep(1.0 / BRAIN_CFG["LOOP_HZ"])
-    except Exception as e:
-        print(f"Nav error: {e}")
-    finally:
-        drive.stop()
-        drive.cleanup()
-        sonar.cleanup()
-        GPIO.cleanup()
+    from navigation.controller import run_navigation
+
+    def on_cycle(data):
+        d = data["d"]
+        brain = data["brain"]
+        perim = data["perim"]
+        ap = brain._avoid_phase.name if brain.state == State else None
+        with _lock:
+            _state.update({
+                "x_cm": round(data["x"], 1),
+                "y_cm": round(data["y"], 1),
+                "theta_rad": round(data["theta"], 4),
+                "left_speed": round(data["ls"], 4),
+                "right_speed": round(data["rs"], 4),
+                "sonar_front": round(d, 1) if d else None,
+                "brain_state": brain.state.name,
+                "avoid_phase": ap,
+                "inside": perim.is_inside(data["x"], data["y"]),
+                "edge_cm": round(perim.distance_to_edge(data["x"], data["y"]), 1),
+            })
+
+    run_navigation(on_cycle=on_cycle)
 
 
 if HAS_HARDWARE:

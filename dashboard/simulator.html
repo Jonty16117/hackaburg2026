@@ -55,6 +55,7 @@ button:disabled{opacity:0.4;cursor:default}
   <circle id="beam-front-pt" cx="0" cy="0" r="3" fill="#00ff88" opacity="0"/>
   <circle id="beam-left-pt" cx="0" cy="0" r="3" fill="#ffcc00" opacity="0"/>
   <circle id="beam-right-pt" cx="0" cy="0" r="3" fill="#ffcc00" opacity="0"/>
+  <circle id="duck-ring" cx="500" cy="100" r="15" fill="none" stroke="#ff444420" stroke-width="1.5" stroke-dasharray="4,3"/>
   <polygon id="duck" points="0,-7 16,0 0,7" fill="#ff4444" stroke="#ff6666" stroke-width="1.5" stroke-linejoin="round"/>
   <g id="start-marker" cursor="grab">
     <circle id="start-pt" cx="500" cy="100" r="5" fill="#00ff88" stroke="#00ff88" stroke-width="1.5"/>
@@ -88,8 +89,8 @@ button:disabled{opacity:0.4;cursor:default}
   <input id="s-right" type="range" min="5" max="600" value="300">
 
   <h2>Auto-Pilot</h2>
-  <label>Explore Speed <span id="v-speed">0.40</span></label>
-  <input id="s-speed" type="range" min="0.1" max="1" step="0.05" value="0.4">
+  <label>Max Speed <span id="v-speed">0.60</span></label>
+  <input id="s-speed" type="range" min="0.1" max="1" step="0.05" value="0.6">
   <div class="btn-row" style="margin-top:6px">
     <button id="btn-auto-start" class="btn-start">Start</button>
     <button id="btn-auto-stop" class="btn-stop">Stop</button>
@@ -117,24 +118,33 @@ button:disabled{opacity:0.4;cursor:default}
 (function() {
   // --- config (mirrors navigation/config.py) ---
   var PW = 1000, PH = 200,
+      DUCK_R = 15,
       OBST_TH = 50, MARGIN = 30,
-      TURN_SP = 0.5, MAX_SPD = 100, WB = 30, HDG_TOL = 0.26,
-      JIT_TIME = 6, JIT_AMT = 0.10,
-      AVOID_COOLDOWN = 2, STUCK_THRESH = 3, STUCK_WINDOW = 10, STUCK_ESC = 2,
+      TURN_SP = 0.5, REVERSE_SPD = 0.5,
+      MAX_SPD = 100, WB = 30, HDG_TOL = 0.26,
+      AVOID_REVERSE_S = 0.5, AVOID_TURN_S = 0.5, AVOID_COOLDOWN_S = 0.3,
+      STUCK_DIST_CM = 8, STUCK_WINDOW_S = 3, STUCK_ESCAPE_S = 1.5,
       ARRIVAL = 20,
       startX = 500, startY = 100, endX = 900, endY = 100;
 
   // --- state ---
   var mode = 'sim',
       duck = { x: startX, y: startY, th: 0, ls: 0, rs: 0 },
-      sens = [300, 300, 300],  // front, left, right (cm)
+      sens = [300, 300, 300],
       obstacles = [],
       autopilot = false,
       arrived = false,
       trail = [],
       dragging = null,
-      exploreSpeed = 0.4,
-      ap = { cooldown:0, hist:[], stuck:false, stuckT:0, jitT:0, jitB:0 };
+      maxSpeed = 0.6,
+      ap = {
+        avoidState: 'none',
+        avoidTimer: 0,
+        avoidTurnDir: null,
+        escapeTimer: 0,
+        escapeDir: 'left',
+        posHistory: []
+      };
 
   // --- helpers ---
   var $ = function(id){ return document.getElementById(id); };
@@ -151,12 +161,23 @@ button:disabled{opacity:0.4;cursor:default}
       slF = $('s-front'), slL = $('s-left'), slR = $('s-right'), slSpd = $('s-speed');
 
   // --- physics (matches odometry.py) ---
+  function obstacleAt(x, y) {
+    for (var i = 0; i < obstacles.length; i++) {
+      var o = obstacles[i];
+      if (Math.hypot(x - o.x, y - o.y) < DUCK_R + o.r) return true;
+    }
+    return false;
+  }
+
   function step(dt) {
     var vl = duck.ls * MAX_SPD, vr = duck.rs * MAX_SPD;
     var v = (vl+vr)/2, w = (vr-vl)/WB;
-    duck.x = clamp(duck.x + v*Math.cos(duck.th)*dt, 0, PW);
-    duck.y = clamp(duck.y + v*Math.sin(duck.th)*dt, 0, PH);
-    duck.th += w*dt;
+    var nx = duck.x + v * Math.cos(duck.th) * dt;
+    var ny = duck.y + v * Math.sin(duck.th) * dt;
+    nx = clamp(nx, DUCK_R, PW - DUCK_R);
+    ny = clamp(ny, DUCK_R, PH - DUCK_R);
+    if (!obstacleAt(nx, ny)) { duck.x = nx; duck.y = ny; }
+    duck.th += w * dt;
     duck.th = Math.atan2(Math.sin(duck.th), Math.cos(duck.th));
   }
 
@@ -185,6 +206,8 @@ button:disabled{opacity:0.4;cursor:default}
   function render() {
     var n = np();
     elDuck.setAttribute('transform', 'translate('+duck.x+','+duck.y+') rotate('+deg(duck.th)+')');
+    $('duck-ring').setAttribute('cx', duck.x);
+    $('duck-ring').setAttribute('cy', duck.y);
     if (arrived) {
       var pulse = Math.sin(performance.now() / 400) * 0.5 + 0.5;
       var rv = Math.floor(255 * (1 - pulse)), gv = Math.floor(100 + 155 * pulse);
@@ -218,7 +241,9 @@ button:disabled{opacity:0.4;cursor:default}
   function renderTelemetry() {
     var inside = duck.x>=1 && duck.x<=PW-1 && duck.y>=1 && duck.y<=PH-1;
     var edges = [duck.x, PW-duck.x, duck.y, PH-duck.y];
-    $('t-state').textContent = arrived ? 'ARRIVED' : (autopilot ? (ap.stuck ? 'STUCK' : 'AUTO') : 'MANUAL');
+    var stateLabel = arrived ? 'ARRIVED' : (!autopilot ? 'IDLE'
+      : (ap.escapeTimer > 0 ? 'ESCAPE' : (ap.avoidState !== 'none' ? ap.avoidState.toUpperCase() : 'GO')));
+    $('t-state').textContent = stateLabel;
     $('t-heading').innerHTML = deg(duck.th)+'&deg;';
     $('t-pos').textContent = '('+duck.x.toFixed(0)+', '+duck.y.toFixed(0)+')';
     $('t-speeds').textContent = duck.ls.toFixed(2)+' / '+duck.rs.toFixed(2);
@@ -228,39 +253,93 @@ button:disabled{opacity:0.4;cursor:default}
     $('t-obstacles').textContent = obstacles.length;
   }
 
-  // --- auto-pilot (3-sensor FSM, mirrors brain.py) ---
+  // --- auto-pilot (phased REVERSE→TURN→COOLDOWN avoid, goal-seeking, position-based stuck detection) ---
   function autoPilot(dt) {
     var distToEnd = Math.hypot(duck.x - endX, duck.y - endY);
     if (distToEnd < ARRIVAL) { arrived = true; return [0, 0]; }
     if (arrived) arrived = false;
-    var f=sens[0], l=sens[1], r=sens[2];
-    if (ap.stuck) {
-      ap.stuckT += dt;
-      if (ap.stuckT > STUCK_ESC) { ap.stuck=false; ap.stuckT=0; ap.hist=[]; }
-      return [-TURN_SP, TURN_SP];
+
+    var goalTh = Math.atan2(endY - duck.y, endX - duck.x);
+    var goalErr = ((goalTh - duck.th + Math.PI) % (2 * Math.PI)) - Math.PI;
+    var f = sens[0], l = sens[1], r = sens[2];
+    var obsDist = OBST_TH + DUCK_R;
+
+    var now = performance.now() / 1000;
+    ap.posHistory.push({x: duck.x, y: duck.y, t: now});
+    var tCutoff = now - STUCK_WINDOW_S;
+    ap.posHistory = ap.posHistory.filter(function(p) { return p.t > tCutoff; });
+    var posStuck = false;
+    if (ap.posHistory.length >= 2) {
+      var p0 = ap.posHistory[0], pn = ap.posHistory[ap.posHistory.length - 1];
+      if (pn.t - p0.t >= STUCK_WINDOW_S && Math.hypot(pn.x - p0.x, pn.y - p0.y) < STUCK_DIST_CM) {
+        posStuck = true;
+      }
     }
-    if (ap.cooldown > 0) ap.cooldown = Math.max(0, ap.cooldown-dt);
-    if (ap.cooldown <= 0 && f < OBST_TH) {
-      var now = performance.now()/1000;
-      ap.hist.push(now);
-      var cutoff = now - STUCK_WINDOW;
-      ap.hist = ap.hist.filter(function(t){ return t>cutoff; });
-      if (ap.hist.length >= STUCK_THRESH) { ap.stuck=true; ap.stuckT=0; return [-TURN_SP, TURN_SP]; }
-      ap.cooldown = AVOID_COOLDOWN;
-      return l>r ? [-TURN_SP, TURN_SP] : [TURN_SP, -TURN_SP];
+
+    if (ap.escapeTimer > 0) {
+      ap.escapeTimer -= dt;
+      return ap.escapeDir === 'left'
+        ? [-REVERSE_SPD, TURN_SP] : [TURN_SP, -REVERSE_SPD];
     }
-    if (l < OBST_TH) return [TURN_SP*0.7, exploreSpeed];
-    if (r < OBST_TH) return [exploreSpeed, TURN_SP*0.7];
-    var near = Math.min(duck.x, PW-duck.x, duck.y, PH-duck.y);
+
+    if (posStuck) {
+      ap.escapeTimer = STUCK_ESCAPE_S;
+      ap.escapeDir = ap.escapeDir === 'left' ? 'right' : 'left';
+      return ap.escapeDir === 'left'
+        ? [-REVERSE_SPD, TURN_SP] : [TURN_SP, -REVERSE_SPD];
+    }
+
+    if (ap.avoidState !== 'none') {
+      ap.avoidTimer += dt;
+
+      if (ap.avoidState === 'reverse') {
+        if (ap.avoidTimer >= AVOID_REVERSE_S) {
+          ap.avoidState = 'turn'; ap.avoidTimer = 0;
+        }
+        return [-REVERSE_SPD, -REVERSE_SPD];
+      }
+
+      if (ap.avoidState === 'turn') {
+        if (ap.avoidTimer >= AVOID_TURN_S) {
+          ap.avoidState = 'cooldown'; ap.avoidTimer = 0;
+        }
+        return ap.avoidTurnDir === 'left'
+          ? [TURN_SP, -TURN_SP] : [-TURN_SP, TURN_SP];
+      }
+
+      if (ap.avoidState === 'cooldown') {
+        if (ap.avoidTimer >= AVOID_COOLDOWN_S) {
+          ap.avoidState = 'none'; ap.avoidTimer = 0;
+        }
+      }
+    }
+
+    if (ap.avoidState === 'none' && f > 0 && f < obsDist) {
+      ap.avoidState = 'reverse'; ap.avoidTimer = 0;
+      ap.avoidTurnDir = l > r ? 'left' : 'right';
+      return [-REVERSE_SPD, -REVERSE_SPD];
+    }
+
+    if (l > 0 && l < obsDist) return [maxSpeed * 0.3, maxSpeed];
+    if (r > 0 && r < obsDist) return [maxSpeed, maxSpeed * 0.3];
+
+    var near = Math.min(duck.x, PW - duck.x, duck.y, PH - duck.y);
     if (near < MARGIN) {
-      var cx=PW/2, cy=PH/2, bearing = Math.atan2(cy-duck.y, cx-duck.x);
-      var err = ((bearing - duck.th + Math.PI) % (2*Math.PI)) - Math.PI;
-      if (Math.abs(err) < HDG_TOL) return [exploreSpeed, exploreSpeed];
-      return [-TURN_SP*Math.sign(err), TURN_SP*Math.sign(err)];
+      var cx = PW / 2, cy = PH / 2;
+      var centerTh = Math.atan2(cy - duck.y, cx - duck.x);
+      var err = ((centerTh - duck.th + Math.PI) % (2 * Math.PI)) - Math.PI;
+      if (Math.abs(err) < HDG_TOL) return [maxSpeed * 0.7, maxSpeed * 0.7];
+      var sign = Math.sign(err);
+      return [-TURN_SP * 0.5 * sign, maxSpeed * 0.6];
     }
-    ap.jitT += dt;
-    if (ap.jitT > JIT_TIME) { ap.jitT=0; ap.jitB=(Math.random()*2-1)*JIT_AMT; }
-    return [exploreSpeed - ap.jitB, exploreSpeed + ap.jitB];
+
+    if (Math.abs(goalErr) < HDG_TOL) return [maxSpeed, maxSpeed];
+
+    var turnDir = Math.sign(goalErr);
+    if (Math.abs(goalErr) > Math.PI / 2) return [-TURN_SP * turnDir, TURN_SP * turnDir];
+    var ratio = Math.abs(goalErr) / (Math.PI / 2);
+    var innerSpeed = maxSpeed * (1 - ratio * 0.7);
+    return goalErr > 0 ? [innerSpeed, maxSpeed] : [maxSpeed, innerSpeed];
   }
 
   function setDrive(ls,rs){ if (mode==='sim') { arrived = false; duck.ls=clamp(ls,-1,1); duck.rs=clamp(rs,-1,1); } }
@@ -269,7 +348,10 @@ button:disabled{opacity:0.4;cursor:default}
     duck.x = startX; duck.y = startY; duck.th = 0; duck.ls = 0; duck.rs = 0;
     arrived = false;
     sens = [300, 300, 300]; trail = [];
-    ap = {cooldown: 0, hist: [], stuck: false, stuckT: 0, jitT: 0, jitB: 0};
+    ap = {
+      avoidState: 'none', avoidTimer: 0, avoidTurnDir: null,
+      escapeTimer: 0, escapeDir: 'left', posHistory: []
+    };
     syncSliders();
   }
 
@@ -283,7 +365,17 @@ button:disabled{opacity:0.4;cursor:default}
   var lastT = 0;
   function loop(t) {
     var dt = lastT ? Math.min((t-lastT)/1000, 0.1) : 0.016; lastT = t;
-    if (autopilot && mode!=='real') { var sp = autoPilot(dt); duck.ls=sp[0]; duck.rs=sp[1]; }
+    if (autopilot && mode !== 'real') {
+      var n = np();
+      sens[0] = ray(n.x, n.y, duck.th) || 9999;
+      sens[1] = ray(n.x, n.y, duck.th - Math.PI / 4) || 9999;
+      sens[2] = ray(n.x, n.y, duck.th + Math.PI / 4) || 9999;
+      $('v-front').textContent = sens[0].toFixed(0);
+      $('v-left').textContent = sens[1].toFixed(0);
+      $('v-right').textContent = sens[2].toFixed(0);
+      var sp = autoPilot(dt);
+      duck.ls = sp[0]; duck.rs = sp[1];
+    }
     step(dt);
     trail.push({x:duck.x, y:duck.y}); if (trail.length>40) trail.shift();
     render(); renderTelemetry();
@@ -294,7 +386,7 @@ button:disabled{opacity:0.4;cursor:default}
   slF.oninput = function(){ sens[0]=+this.value; $('v-front').textContent=sens[0]; };
   slL.oninput = function(){ sens[1]=+this.value; $('v-left').textContent=sens[1]; };
   slR.oninput = function(){ sens[2]=+this.value; $('v-right').textContent=sens[2]; };
-  slSpd.oninput = function(){ exploreSpeed = +this.value; $('v-speed').textContent = this.value; };
+  slSpd.oninput = function(){ maxSpeed = +this.value; $('v-speed').textContent = this.value; };
 
   // --- click to add obstacle (right-click to remove) ---
   svm.addEventListener('click', function(e) {
@@ -303,8 +395,8 @@ button:disabled{opacity:0.4;cursor:default}
     var x = (e.clientX - r.left) * (PW / r.width);
     var y = (e.clientY - r.top) * (PH / r.height);
     if (x < 2 || x > PW - 2 || y < 2 || y > PH - 2) return;
-    if (Math.hypot(x - startX, y - startY) < 20) return;
-    if (Math.hypot(x - endX, y - endY) < 20) return;
+    if (Math.hypot(x - startX, y - startY) < DUCK_R + 10) return;
+    if (Math.hypot(x - endX, y - endY) < DUCK_R + 10) return;
     for (var i = 0; i < obstacles.length; i++)
       if (Math.hypot(x - obstacles[i].x, y - obstacles[i].y) < obstacles[i].r + 10) return;
     obstacles.push({x: x, y: y, r: 5 + Math.random() * 10});
