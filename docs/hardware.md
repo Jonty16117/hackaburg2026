@@ -4,8 +4,9 @@
 
 | # | Component | Spec | Notes |
 |---|-----------|------|-------|
-| 2 | Brushless DC Motors | 3-wire (green, yellow, sky blue) | Counter-rotating pair |
-| 2 | Bidirectional BL ESC | 30A, BEC 5V/2A, 2S-4S LiPo | 3 black → motor; thick red/black → battery; 3-pin signal header |
+| 2 | APISQUEEN BLDC Motors | 3-wire (green, yellow, sky blue) | Waterproof brushless, model/KV TBD |
+| 2 | APISQUEEN Bi-directional 30A ESC | 2-4S LiPo, BEC 5V/1A, 14AWG | 28×15×6mm, 36g; 3 black → motor; thick red/black → battery; brown/red/orange signal header |
+| - | APISQUEEN — [apisqueen.net](https://apisqueen.net) | Underwater thruster/motor/ESC manufacturer | Shop: [underwaterthruster.com](https://www.underwaterthruster.com) |
 | 1 | Raspberry Pi | Any with GPIO (Pi 3/4/5/Zero 2W) | Runs motor control + detection |
 | 1 | RCWL-1655 | Ultrasonic distance sensor | Obiect avoidance |
 | 1 | LiPo Battery | 2S-4S (7.4V – 16.8V) | Powers ESCs → motors; BEC powers Pi (optional) |
@@ -34,7 +35,7 @@ Connect to the 3 motor phase wires. Order determines direction — swap any two 
 | Thick | Red | Battery + | LiPo positive (+) |
 | Thick | Black | Battery - | LiPo negative (-) |
 | Thin header | Brown | GND | Raspberry Pi GND (e.g., pin 6) |
-| Thin header | Red | BEC +5V output | ⚠️ Leave disconnected (Pi powered via USB) |
+| Thin header | Red | BEC +5V / 1A output | ⚠️ Leave disconnected (Pi powered via USB) |
 | Thin header | Orange | PWM signal | Raspberry Pi GPIO |
 
 ---

@@ -8,6 +8,8 @@ A floating robot built into a duck decoy. Two brushless motors provide water pro
 
 ## Quick Start
 
+See **[docs/assembly.md](docs/assembly.md)** for the full step-by-step assembly and testing guide.
+
 ```bash
 # Calibrate ESCs (run once per setup)
 python -m scripts.calibrate
@@ -40,8 +42,8 @@ hackaburg2026/
 
 | Component | Spec |
 |-----------|------|
-| Motors | 2x Brushless DC (3-wire, 2S-4S) |
-| ESCs | 2x Bidirectional BL ESC 30A (BEC 5V/2A) |
+| Motors | 2x APISQUEEN BLDC (3-wire, waterproof) |
+| ESCs | 2x APISQUEEN 30A Bi-directional (BEC 5V/1A, 2-4S) |
 | Controller | Raspberry Pi |
 | Sonar | RCWL-1655 ultrasonic |
 | Battery | LiPo 2S-4S (TBD) |
