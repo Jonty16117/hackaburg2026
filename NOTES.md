@@ -9,11 +9,12 @@ A motorized duck decoy / floating robot that navigates water autonomously, detec
 
 | Component | Spec |
 |-----------|------|
-| ESC | Bidirectional, 30A continuous |
-| BEC | 5V / 2A (powers controller/receiver) |
-| Battery | LiPo 2S–4S (7.4V – 16.8V) |
+| ESCs | 2x Bidirectional BL ESC, 30A (3 black → motor; red/black → battery; brown/red/orange → signal) |
+| BEC | 5V / 2A built into ESCs |
+| Battery | LiPo 2S–4S (7.4V – 16.8V) — not yet acquired |
 | Motors | 2x Brushless DC (3-wire: green, yellow, sky blue per motor) |
-| Controller | TBD (Raspberry Pi / ESP32 / Arduino) |
+| Controller | Raspberry Pi (GPIO PWM → ESC signal wires) |
+| Sonar | RCWL-1655 (ultrasonic distance sensor for obstacle detection) |
 | Camera | TBD (for object detection) |
 | Hull | 3D-printed / modified duck decoy |
 
@@ -54,19 +55,40 @@ Each motor has 3 phase wires (no polarity — order determines direction):
 - Swap any **two wires** to reverse rotation direction.
 - Both motors wired identically = both spin same way (counter-rotating if props are mirrored).
 
-## ESC Compatibility Warning
+## ESC Pinout
 
-The bidirectional 30A ESC described earlier (Brushed, 2-wire output) is **not compatible** with 3-wire brushless motors. Either:
+Each ESC has two sides:
 
-- **Option A:** Use 2x **brushless ESCs** (30A, 2S-4S, bidirectional capable) — one per motor.
-- **Option B:** Replace motors with brushed DC motors to match the existing ESC.
+| Side | Wires | Connects To |
+|------|-------|-------------|
+| Motor side | 3x Black | Motor phases (green, yellow, sky blue) |
+| Power side | Red (thick) + Black (thick) | LiPo battery |
+| Signal | 3-pin header: Brown / Red / Orange | Raspberry Pi |
+
+Signal pinout:
+
+| Wire | Function | Connect to Pi |
+|------|----------|---------------|
+| Brown | GND | Pi GND (pin 6, 9, 14, etc.) |
+| Red | BEC 5V output | **Do NOT connect** (Pi powered via USB) |
+| Orange | PWM signal | Pi GPIO 12 (left ESC), GPIO 13 (right ESC) |
+
+### Differential Steering (Tank Drive)
+
+| Action | Left Motor | Right Motor |
+|--------|------------|-------------|
+| Forward | Full CW | Full CW |
+| Reverse | Full CCW | Full CCW |
+| Left Turn | Stop/Rev | Forward |
+| Right Turn | Forward | Stop/Rev |
+| Stop | 1500µs neutral | 1500µs neutral |
 
 ## To-Do
 
 - [ ] Procure duck hull / decoy
 - [ ] 3D-print motor mounts
 - [ ] Waterproof electronics housing
-- [ ] Wire ESC + motors + battery + controller
+- [x] Wire ESC + motors + battery + controller
 - [ ] Calibrate motor PWM ranges
 - [ ] Set up object detection pipeline (model + camera)
 - [ ] Implement obstacle avoidance logic
