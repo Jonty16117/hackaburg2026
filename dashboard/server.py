@@ -24,16 +24,32 @@ from fastapi.responses import FileResponse, StreamingResponse
 HERE = pathlib.Path(__file__).parent
 
 try:
-    import RPi.GPIO as GPIO
-    from motors.drive import DuckDrive
-    from sensors.sonar import Sonar
     from navigation.config import (
         LEFT_PIN, RIGHT_PIN, SONAR_TRIG, SONAR_ECHO,
-        PERIMETER_CM, START_X_CM, START_Y_CM, START_HEADING_RAD, BRAIN_CFG,
+        PERIMETER_CM, START_X_CM, START_Y_CM, START_HEADING_RAD,
+        END_X_CM, END_Y_CM, BRAIN_CFG,
     )
     from navigation.odometry import Odometry
     from navigation.perimeter import Perimeter
     from navigation.brain import Brain, State
+except ImportError:
+    LEFT_PIN = 12; RIGHT_PIN = 13
+    SONAR_TRIG = 23; SONAR_ECHO = 24
+    PERIMETER_CM = [(0, 0), (1000, 0), (1000, 200), (0, 200)]
+    START_X_CM = 500; START_Y_CM = 100; START_HEADING_RAD = 0.0
+    END_X_CM = 900; END_Y_CM = 100
+    BRAIN_CFG = {
+        "OBSTACLE_THRESHOLD_CM": 50, "PERIMETER_MARGIN_CM": 30,
+        "EXPLORE_SPEED": 0.4, "TURN_SPEED": 0.5,
+        "MAX_SPEED_CM_S": 100, "WHEEL_BASE_CM": 30,
+        "HEADING_TOLERANCE_RAD": 0.26, "LOOP_HZ": 20,
+    }
+    Odometry = None; Perimeter = None; Brain = None; State = None
+
+try:
+    import RPi.GPIO as GPIO
+    from motors.drive import DuckDrive
+    from sensors.sonar import Sonar
     HAS_HARDWARE = True
 except ImportError:
     HAS_HARDWARE = False
@@ -41,9 +57,9 @@ except ImportError:
 app = FastAPI(title="DuckBot Dashboard")
 
 _state = {
-    "x_cm": START_X_CM if HAS_HARDWARE else 500,
-    "y_cm": START_Y_CM if HAS_HARDWARE else 100,
-    "theta_rad": START_HEADING_RAD if HAS_HARDWARE else 0.0,
+    "x_cm": START_X_CM,
+    "y_cm": START_Y_CM,
+    "theta_rad": START_HEADING_RAD,
     "left_speed": 0.0, "right_speed": 0.0,
     "sonar_front": None, "sonar_left": None, "sonar_right": None,
     "brain_state": "IDLE", "avoid_phase": None,
@@ -60,17 +76,16 @@ async def index():
 @app.get("/config")
 async def get_config():
     return {
-        "perimeter_cm": PERIMETER_CM if HAS_HARDWARE else [[0, 0], [1000, 0], [1000, 200], [0, 200]],
-        "brain_cfg": BRAIN_CFG if HAS_HARDWARE else {
-            "OBSTACLE_THRESHOLD_CM": 50, "PERIMETER_MARGIN_CM": 30,
-            "EXPLORE_SPEED": 0.4, "TURN_SPEED": 0.5,
-            "MAX_SPEED_CM_S": 100, "WHEEL_BASE_CM": 30,
-            "HEADING_TOLERANCE_RAD": 0.26,
-        },
+        "perimeter_cm": PERIMETER_CM,
+        "brain_cfg": BRAIN_CFG,
         "start": {
-            "x": START_X_CM if HAS_HARDWARE else 500,
-            "y": START_Y_CM if HAS_HARDWARE else 100,
-            "theta": START_HEADING_RAD if HAS_HARDWARE else 0,
+            "x": START_X_CM,
+            "y": START_Y_CM,
+            "theta": START_HEADING_RAD,
+        },
+        "end": {
+            "x": END_X_CM,
+            "y": END_Y_CM,
         },
     }
 

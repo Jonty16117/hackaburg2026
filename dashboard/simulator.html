@@ -25,9 +25,7 @@ input[type=text]{padding:4px 6px;border:1px solid #1a3a5c;background:#0d1b2a;col
 .btn-start{background:#1b5e20;color:#81c784}
 .btn-stop{background:#4a1a1a;color:#ef9a9a}
 .btn-neutral{background:#1a3a5c;color:#ccc}
-.dpad{display:grid;grid-template:repeat(3,1fr)/repeat(3,1fr);gap:3px;width:120px;margin:0 auto}
-.dpad button{padding:8px;font:inherit;font-weight:bold;border:none;border-radius:4px;background:#1a3a5c;color:#ccc;cursor:pointer}
-.dpad button:active{background:#4fc3f7;color:#000}
+
 .telem{font-size:12px;width:100%}
 .telem td{padding:2px 6px}
 .telem td:first-child{color:#90a4ae;text-align:right;white-space:nowrap}
@@ -58,6 +56,14 @@ button:disabled{opacity:0.4;cursor:default}
   <circle id="beam-left-pt" cx="0" cy="0" r="3" fill="#ffcc00" opacity="0"/>
   <circle id="beam-right-pt" cx="0" cy="0" r="3" fill="#ffcc00" opacity="0"/>
   <polygon id="duck" points="0,-7 16,0 0,7" fill="#ff4444" stroke="#ff6666" stroke-width="1.5" stroke-linejoin="round"/>
+  <g id="start-marker" cursor="grab">
+    <circle id="start-pt" cx="500" cy="100" r="5" fill="#00ff88" stroke="#00ff88" stroke-width="1.5"/>
+    <text id="start-label" x="500" y="86" fill="#00ff88" font-size="11" text-anchor="middle" font-weight="bold">S</text>
+  </g>
+  <g id="end-marker" cursor="grab">
+    <circle id="end-pt" cx="900" cy="100" r="5" fill="none" stroke="#42a5f5" stroke-width="2" stroke-dasharray="3,3"/>
+    <text id="end-label" x="900" y="86" fill="#42a5f5" font-size="11" text-anchor="middle" font-weight="bold">E</text>
+  </g>
   <text id="brain-label" x="500" y="12" fill="#4fc3f7" font-size="11" text-anchor="middle" font-weight="bold" opacity="0"></text>
 </svg>
 
@@ -81,17 +87,10 @@ button:disabled{opacity:0.4;cursor:default}
   <label>Right <span id="v-right">300</span></label>
   <input id="s-right" type="range" min="5" max="600" value="300">
 
-  <h2>Drive</h2>
-  <div class="dpad">
-    <div></div><button id="btn-fwd">W</button><div></div>
-    <button id="btn-left">A</button><button id="btn-stop">S</button><button id="btn-right">D</button>
-    <div></div><button id="btn-rev" style="opacity:0.5">R</button><div></div>
-  </div>
-  <label>Speed <span id="v-speed">0.40</span></label>
-  <input id="s-speed" type="range" min="0.1" max="1" step="0.05" value="0.4">
-
   <h2>Auto-Pilot</h2>
-  <div class="btn-row">
+  <label>Explore Speed <span id="v-speed">0.40</span></label>
+  <input id="s-speed" type="range" min="0.1" max="1" step="0.05" value="0.4">
+  <div class="btn-row" style="margin-top:6px">
     <button id="btn-auto-start" class="btn-start">Start</button>
     <button id="btn-auto-stop" class="btn-stop">Stop</button>
   </div>
@@ -105,6 +104,7 @@ button:disabled{opacity:0.4;cursor:default}
     <tr><td>Sonar F/L/R</td><td id="t-sonar">- / - / -</td></tr>
     <tr><td>Inside</td><td id="t-inside">yes</td></tr>
     <tr><td>Edge dist</td><td id="t-edge">100 cm</td></tr>
+    <tr><td>Obstacles</td><td id="t-obstacles">0</td></tr>
   </table>
 
   <div class="btn-row">
@@ -118,17 +118,22 @@ button:disabled{opacity:0.4;cursor:default}
   // --- config (mirrors navigation/config.py) ---
   var PW = 1000, PH = 200,
       OBST_TH = 50, MARGIN = 30,
-      EXPLORE = 0.4, TURN_SP = 0.5, MAX_SPD = 100, WB = 30, HDG_TOL = 0.26,
+      TURN_SP = 0.5, MAX_SPD = 100, WB = 30, HDG_TOL = 0.26,
       JIT_TIME = 6, JIT_AMT = 0.10,
-      AVOID_COOLDOWN = 2, STUCK_THRESH = 3, STUCK_WINDOW = 10, STUCK_ESC = 2;
+      AVOID_COOLDOWN = 2, STUCK_THRESH = 3, STUCK_WINDOW = 10, STUCK_ESC = 2,
+      ARRIVAL = 20,
+      startX = 500, startY = 100, endX = 900, endY = 100;
 
   // --- state ---
   var mode = 'sim',
-      duck = { x: 500, y: 100, th: 0, ls: 0, rs: 0 },
+      duck = { x: startX, y: startY, th: 0, ls: 0, rs: 0 },
       sens = [300, 300, 300],  // front, left, right (cm)
       obstacles = [],
       autopilot = false,
+      arrived = false,
       trail = [],
+      dragging = null,
+      exploreSpeed = 0.4,
       ap = { cooldown:0, hist:[], stuck:false, stuckT:0, jitT:0, jitB:0 };
 
   // --- helpers ---
@@ -180,6 +185,15 @@ button:disabled{opacity:0.4;cursor:default}
   function render() {
     var n = np();
     elDuck.setAttribute('transform', 'translate('+duck.x+','+duck.y+') rotate('+deg(duck.th)+')');
+    if (arrived) {
+      var pulse = Math.sin(performance.now() / 400) * 0.5 + 0.5;
+      var rv = Math.floor(255 * (1 - pulse)), gv = Math.floor(100 + 155 * pulse);
+      elDuck.setAttribute('fill', 'rgb('+rv+','+gv+',68)');
+      elDuck.setAttribute('stroke', 'rgb('+(rv+34)+','+(gv+34)+',102)');
+    } else {
+      elDuck.setAttribute('fill', '#ff4444');
+      elDuck.setAttribute('stroke', '#ff6666');
+    }
     var dirs = [0, -Math.PI/4, Math.PI/4];
     var beams = [elBF, elBL, elBR], bpts = [elBFP, elBLP, elBRP];
     for (var i=0; i<3; i++) {
@@ -204,17 +218,21 @@ button:disabled{opacity:0.4;cursor:default}
   function renderTelemetry() {
     var inside = duck.x>=1 && duck.x<=PW-1 && duck.y>=1 && duck.y<=PH-1;
     var edges = [duck.x, PW-duck.x, duck.y, PH-duck.y];
-    $('t-state').textContent = autopilot ? (ap.stuck ? 'STUCK' : 'AUTO') : 'MANUAL';
+    $('t-state').textContent = arrived ? 'ARRIVED' : (autopilot ? (ap.stuck ? 'STUCK' : 'AUTO') : 'MANUAL');
     $('t-heading').innerHTML = deg(duck.th)+'&deg;';
     $('t-pos').textContent = '('+duck.x.toFixed(0)+', '+duck.y.toFixed(0)+')';
     $('t-speeds').textContent = duck.ls.toFixed(2)+' / '+duck.rs.toFixed(2);
     $('t-sonar').textContent = sens.map(function(s){ return s>0 ? s : '-'; }).join(' / ');
     $('t-inside').textContent = inside ? 'yes' : 'OUTSIDE!';
     $('t-edge').textContent = Math.min.apply(null, edges).toFixed(0)+' cm';
+    $('t-obstacles').textContent = obstacles.length;
   }
 
   // --- auto-pilot (3-sensor FSM, mirrors brain.py) ---
   function autoPilot(dt) {
+    var distToEnd = Math.hypot(duck.x - endX, duck.y - endY);
+    if (distToEnd < ARRIVAL) { arrived = true; return [0, 0]; }
+    if (arrived) arrived = false;
     var f=sens[0], l=sens[1], r=sens[2];
     if (ap.stuck) {
       ap.stuckT += dt;
@@ -231,26 +249,27 @@ button:disabled{opacity:0.4;cursor:default}
       ap.cooldown = AVOID_COOLDOWN;
       return l>r ? [-TURN_SP, TURN_SP] : [TURN_SP, -TURN_SP];
     }
-    if (l < OBST_TH) return [TURN_SP*0.7, EXPLORE];
-    if (r < OBST_TH) return [EXPLORE, TURN_SP*0.7];
+    if (l < OBST_TH) return [TURN_SP*0.7, exploreSpeed];
+    if (r < OBST_TH) return [exploreSpeed, TURN_SP*0.7];
     var near = Math.min(duck.x, PW-duck.x, duck.y, PH-duck.y);
     if (near < MARGIN) {
       var cx=PW/2, cy=PH/2, bearing = Math.atan2(cy-duck.y, cx-duck.x);
       var err = ((bearing - duck.th + Math.PI) % (2*Math.PI)) - Math.PI;
-      if (Math.abs(err) < HDG_TOL) return [EXPLORE, EXPLORE];
+      if (Math.abs(err) < HDG_TOL) return [exploreSpeed, exploreSpeed];
       return [-TURN_SP*Math.sign(err), TURN_SP*Math.sign(err)];
     }
     ap.jitT += dt;
     if (ap.jitT > JIT_TIME) { ap.jitT=0; ap.jitB=(Math.random()*2-1)*JIT_AMT; }
-    return [EXPLORE - ap.jitB, EXPLORE + ap.jitB];
+    return [exploreSpeed - ap.jitB, exploreSpeed + ap.jitB];
   }
 
-  function drive(ls, rs) { if (mode==='sim') { duck.ls=clamp(ls,-1,1); duck.rs=clamp(rs,-1,1); } }
+  function setDrive(ls,rs){ if (mode==='sim') { arrived = false; duck.ls=clamp(ls,-1,1); duck.rs=clamp(rs,-1,1); } }
 
   function resetAll() {
-    duck.x=500; duck.y=100; duck.th=0; duck.ls=0; duck.rs=0;
-    sens=[300,300,300]; trail=[];
-    ap={cooldown:0,hist:[],stuck:false,stuckT:0,jitT:0,jitB:0};
+    duck.x = startX; duck.y = startY; duck.th = 0; duck.ls = 0; duck.rs = 0;
+    arrived = false;
+    sens = [300, 300, 300]; trail = [];
+    ap = {cooldown: 0, hist: [], stuck: false, stuckT: 0, jitT: 0, jitB: 0};
     syncSliders();
   }
 
@@ -275,39 +294,74 @@ button:disabled{opacity:0.4;cursor:default}
   slF.oninput = function(){ sens[0]=+this.value; $('v-front').textContent=sens[0]; };
   slL.oninput = function(){ sens[1]=+this.value; $('v-left').textContent=sens[1]; };
   slR.oninput = function(){ sens[2]=+this.value; $('v-right').textContent=sens[2]; };
-  slSpd.oninput = function(){ $('v-speed').textContent=this.value; };
+  slSpd.oninput = function(){ exploreSpeed = +this.value; $('v-speed').textContent = this.value; };
 
-  // --- manual drive ---
-  function setDrive(ls,rs){ drive(ls,rs); }
-  $('btn-fwd').onmousedown=function(){setDrive(slSpd.value,slSpd.value);};
-  $('btn-rev').onmousedown=function(){setDrive(-slSpd.value,-slSpd.value);};
-  $('btn-left').onmousedown=function(){setDrive(-slSpd.value,slSpd.value);};
-  $('btn-right').onmousedown=function(){setDrive(slSpd.value,-slSpd.value);};
-  $('btn-stop').onmousedown=function(){setDrive(0,0);};
-  document.addEventListener('mouseup', function(){if(mode==='sim'&&!autopilot)setDrive(0,0);});
-  document.addEventListener('keydown', function(e){
-    if(e.target.tagName==='INPUT') return;
-    var s = +slSpd.value;
-    switch(e.key.toLowerCase()){
-      case 'w': setDrive(s,s); break; case 's': setDrive(-s,-s); break;
-      case 'a': setDrive(-s,s); break; case 'd': setDrive(s,-s); break;
-      case 'q': setDrive(0,0); break;
+  // --- click to add obstacle (right-click to remove) ---
+  svm.addEventListener('click', function(e) {
+    if (mode === 'real' || dragging || e.button !== 0) return;
+    var r = svm.getBoundingClientRect();
+    var x = (e.clientX - r.left) * (PW / r.width);
+    var y = (e.clientY - r.top) * (PH / r.height);
+    if (x < 2 || x > PW - 2 || y < 2 || y > PH - 2) return;
+    if (Math.hypot(x - startX, y - startY) < 20) return;
+    if (Math.hypot(x - endX, y - endY) < 20) return;
+    for (var i = 0; i < obstacles.length; i++)
+      if (Math.hypot(x - obstacles[i].x, y - obstacles[i].y) < obstacles[i].r + 10) return;
+    obstacles.push({x: x, y: y, r: 5 + Math.random() * 10});
+  });
+
+  svm.addEventListener('contextmenu', function(e) {
+    e.preventDefault();
+    if (mode === 'real') return;
+    var r = svm.getBoundingClientRect();
+    var x = (e.clientX - r.left) * (PW / r.width);
+    var y = (e.clientY - r.top) * (PH / r.height);
+    for (var i = obstacles.length - 1; i >= 0; i--) {
+      if (Math.hypot(x - obstacles[i].x, y - obstacles[i].y) < obstacles[i].r + 5) {
+        obstacles.splice(i, 1);
+        return;
+      }
     }
   });
-  document.addEventListener('keyup', function(e){
-    if(e.target.tagName==='INPUT') return;
-    if('wasd'.includes(e.key.toLowerCase()) && !autopilot) setDrive(0,0);
+
+  // --- drag start/end markers ---
+  $('start-marker').addEventListener('mousedown', function(e) {
+    if (mode === 'real') return;
+    dragging = 'start';
+    e.stopPropagation();
+  });
+  $('end-marker').addEventListener('mousedown', function(e) {
+    if (mode === 'real') return;
+    dragging = 'end';
+    e.stopPropagation();
   });
 
-  // --- click to place/remove obstacles ---
-  svm.addEventListener('click', function(e){
-    if (mode==='real' || e.target!==svm) return;
+  svm.addEventListener('mousemove', function(e) {
+    if (!dragging) return;
     var r = svm.getBoundingClientRect();
-    var x = (e.clientX-r.left)*(PW/r.width), y = (e.clientY-r.top)*(PH/r.height);
-    if (x<0||x>PW||y<0||y>PH) return;
-    for (var i=0; i<obstacles.length; i++)
-      if (Math.hypot(x-obstacles[i].x, y-obstacles[i].y) < obstacles[i].r+5) { obstacles.splice(i,1); return; }
-    obstacles.push({x:x, y:y, r:8});
+    var x = clamp((e.clientX - r.left) * (PW / r.width), 10, PW - 10);
+    var y = clamp((e.clientY - r.top) * (PH / r.height), 10, PH - 10);
+    if (dragging === 'start') {
+      startX = x; startY = y;
+      $('start-pt').setAttribute('cx', x);
+      $('start-pt').setAttribute('cy', y);
+      $('start-label').setAttribute('x', x);
+      $('start-label').setAttribute('y', y - 14);
+    } else {
+      endX = x; endY = y;
+      $('end-pt').setAttribute('cx', x);
+      $('end-pt').setAttribute('cy', y);
+      $('end-label').setAttribute('x', x);
+      $('end-label').setAttribute('y', y - 14);
+    }
+  });
+
+  document.addEventListener('mouseup', function() {
+    if (dragging === 'start') {
+      duck.x = startX; duck.y = startY; duck.th = 0;
+      arrived = false;
+    }
+    dragging = null;
   });
 
   // --- mode switching ---
@@ -317,6 +371,12 @@ button:disabled{opacity:0.4;cursor:default}
     $('conn-row').style.display='none'; $('btn-auto-start').disabled=false; $('btn-auto-stop').disabled=false;
     slF.disabled=false; slL.disabled=false; slR.disabled=false;
     if (es) { es.close(); es=null; } $('ws-stat').className='ws-status ws-off'; $('ws-stat').textContent='off';
+    arrived = false; dragging = null;
+    startX = 500; startY = 100; endX = 900; endY = 100;
+    $('start-pt').setAttribute('cx', startX); $('start-pt').setAttribute('cy', startY);
+    $('start-label').setAttribute('x', startX); $('start-label').setAttribute('y', startY - 14);
+    $('end-pt').setAttribute('cx', endX); $('end-pt').setAttribute('cy', endY);
+    $('end-label').setAttribute('x', endX); $('end-label').setAttribute('y', endY - 14);
     resetAll();
   };
   $('btn-real').onclick = function(){
@@ -353,8 +413,8 @@ button:disabled{opacity:0.4;cursor:default}
   };
 
   // --- buttons ---
-  $('btn-auto-start').onclick = function(){ autopilot=true; drive(0,0); };
-  $('btn-auto-stop').onclick = function(){ autopilot=false; drive(0,0); };
+  $('btn-auto-start').onclick = function(){ autopilot=true; arrived=false; setDrive(0,0); };
+  $('btn-auto-stop').onclick = function(){ autopilot=false; arrived=false; setDrive(0,0); };
   $('btn-reset').onclick = function(){ resetAll(); };
   $('btn-clear-obs').onclick = function(){ obstacles=[]; };
 
