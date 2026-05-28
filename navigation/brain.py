@@ -93,6 +93,9 @@ class Brain:
         if self.state == State.AVOID:
             return self._handle_avoid(sonar_cm)
 
+        if self._avoid_cooldown > 0:
+            self._avoid_cooldown = max(0, self._avoid_cooldown - dt)
+
         if (
             self._avoid_cooldown <= 0
             and sonar_cm is not None
@@ -112,9 +115,6 @@ class Brain:
 
         if self.state == State.TURN_TO_CENTER:
             return self._handle_turn_to_center(x, y, theta)
-
-        if self._avoid_cooldown > 0:
-            self._avoid_cooldown = max(0, self._avoid_cooldown - dt)
 
         return self._handle_explore(dt)
 

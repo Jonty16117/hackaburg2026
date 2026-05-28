@@ -81,12 +81,12 @@ button:disabled{opacity:0.4;cursor:default}
   </div>
 
   <h2>Sensors (cm)</h2>
-  <label>Front <span id="v-front">300</span></label>
-  <input id="s-front" type="range" min="5" max="600" value="300">
-  <label>Left <span id="v-left">300</span></label>
-  <input id="s-left" type="range" min="5" max="600" value="300">
-  <label>Right <span id="v-right">300</span></label>
-  <input id="s-right" type="range" min="5" max="600" value="300">
+  <label>Front <span id="v-front">20</span></label>
+  <input id="s-front" type="range" min="20" max="600" value="20">
+  <label>Left <span id="v-left">20</span></label>
+  <input id="s-left" type="range" min="20" max="600" value="20">
+  <label>Right <span id="v-right">20</span></label>
+  <input id="s-right" type="range" min="20" max="600" value="20">
 
   <h2>Auto-Pilot</h2>
   <label>Max Speed <span id="v-speed">0.60</span></label>
@@ -121,7 +121,7 @@ button:disabled{opacity:0.4;cursor:default}
       DUCK_R = 15,
       OBST_TH = 50, MARGIN = 30,
       TURN_SP = 0.5, REVERSE_SPD = 0.5,
-      MAX_SPD = 100, WB = 30, HDG_TOL = 0.26,
+      MAX_SPD = 100, WB = 30, HDG_TOL = 0.02,
       AVOID_REVERSE_S = 0.5, AVOID_TURN_S = 0.5, AVOID_COOLDOWN_S = 0.3,
       STUCK_DIST_CM = 8, STUCK_WINDOW_S = 3, STUCK_ESCAPE_S = 1.5,
       ARRIVAL = 20,
@@ -130,7 +130,7 @@ button:disabled{opacity:0.4;cursor:default}
   // --- state ---
   var mode = 'sim',
       duck = { x: startX, y: startY, th: 0, ls: 0, rs: 0 },
-      sens = [300, 300, 300],
+      sens = [20, 20, 20],
       obstacles = [],
       autopilot = false,
       arrived = false,
@@ -143,7 +143,9 @@ button:disabled{opacity:0.4;cursor:default}
         avoidTurnDir: null,
         escapeTimer: 0,
         escapeDir: 'left',
-        posHistory: []
+        posHistory: [],
+        perimEscaping: false,
+        escapeHeading: 0
       };
 
   // --- helpers ---
@@ -242,7 +244,7 @@ button:disabled{opacity:0.4;cursor:default}
     var inside = duck.x>=1 && duck.x<=PW-1 && duck.y>=1 && duck.y<=PH-1;
     var edges = [duck.x, PW-duck.x, duck.y, PH-duck.y];
     var stateLabel = arrived ? 'ARRIVED' : (!autopilot ? 'IDLE'
-      : (ap.escapeTimer > 0 ? 'ESCAPE' : (ap.avoidState !== 'none' ? ap.avoidState.toUpperCase() : 'GO')));
+      : (ap.perimEscaping ? 'PERIM/'+ap.perimPhase.toUpperCase() : (ap.escapeTimer > 0 ? 'ESCAPE' : (ap.avoidState !== 'none' ? ap.avoidState.toUpperCase() : 'GO'))));
     $('t-state').textContent = stateLabel;
     $('t-heading').innerHTML = deg(duck.th)+'&deg;';
     $('t-pos').textContent = '('+duck.x.toFixed(0)+', '+duck.y.toFixed(0)+')';
@@ -265,28 +267,30 @@ button:disabled{opacity:0.4;cursor:default}
     var obsDist = OBST_TH + DUCK_R;
 
     var now = performance.now() / 1000;
-    ap.posHistory.push({x: duck.x, y: duck.y, t: now});
-    var tCutoff = now - STUCK_WINDOW_S;
-    ap.posHistory = ap.posHistory.filter(function(p) { return p.t > tCutoff; });
-    var posStuck = false;
-    if (ap.posHistory.length >= 2) {
-      var p0 = ap.posHistory[0], pn = ap.posHistory[ap.posHistory.length - 1];
-      if (pn.t - p0.t >= STUCK_WINDOW_S && Math.hypot(pn.x - p0.x, pn.y - p0.y) < STUCK_DIST_CM) {
-        posStuck = true;
+    if (!ap.perimEscaping) {
+      ap.posHistory.push({x: duck.x, y: duck.y, t: now});
+      var tCutoff = now - STUCK_WINDOW_S;
+      ap.posHistory = ap.posHistory.filter(function(p) { return p.t > tCutoff; });
+      var posStuck = false;
+      if (ap.posHistory.length >= 2) {
+        var p0 = ap.posHistory[0], pn = ap.posHistory[ap.posHistory.length - 1];
+        if (pn.t - p0.t >= STUCK_WINDOW_S && Math.hypot(pn.x - p0.x, pn.y - p0.y) < STUCK_DIST_CM) {
+          posStuck = true;
+        }
       }
-    }
 
-    if (ap.escapeTimer > 0) {
-      ap.escapeTimer -= dt;
-      return ap.escapeDir === 'left'
-        ? [-REVERSE_SPD, TURN_SP] : [TURN_SP, -REVERSE_SPD];
-    }
+      if (ap.escapeTimer > 0) {
+        ap.escapeTimer -= dt;
+        return ap.escapeDir === 'left'
+          ? [-REVERSE_SPD, TURN_SP] : [TURN_SP, -REVERSE_SPD];
+      }
 
-    if (posStuck) {
-      ap.escapeTimer = STUCK_ESCAPE_S;
-      ap.escapeDir = ap.escapeDir === 'left' ? 'right' : 'left';
-      return ap.escapeDir === 'left'
-        ? [-REVERSE_SPD, TURN_SP] : [TURN_SP, -REVERSE_SPD];
+      if (posStuck) {
+        ap.escapeTimer = STUCK_ESCAPE_S;
+        ap.escapeDir = ap.escapeDir === 'left' ? 'right' : 'left';
+        return ap.escapeDir === 'left'
+          ? [-REVERSE_SPD, TURN_SP] : [TURN_SP, -REVERSE_SPD];
+      }
     }
 
     if (ap.avoidState !== 'none') {
@@ -324,13 +328,41 @@ button:disabled{opacity:0.4;cursor:default}
     if (r > 0 && r < obsDist) return [maxSpeed, maxSpeed * 0.3];
 
     var near = Math.min(duck.x, PW - duck.x, duck.y, PH - duck.y);
-    if (near < MARGIN) {
-      var cx = PW / 2, cy = PH / 2;
-      var centerTh = Math.atan2(cy - duck.y, cx - duck.x);
-      var err = ((centerTh - duck.th + Math.PI) % (2 * Math.PI)) - Math.PI;
-      if (Math.abs(err) < HDG_TOL) return [maxSpeed * 0.7, maxSpeed * 0.7];
-      var sign = Math.sign(err);
-      return [-TURN_SP * 0.5 * sign, maxSpeed * 0.6];
+    if (near < MARGIN && !ap.perimEscaping) {
+      var dx = 0, dy = 0;
+      if (duck.x < MARGIN) dx = MARGIN - duck.x;
+      if (PW - duck.x < MARGIN) dx -= (duck.x - (PW - MARGIN));
+      if (duck.y < MARGIN) dy = MARGIN - duck.y;
+      if (PH - duck.y < MARGIN) dy -= (duck.y - (PH - MARGIN));
+      ap.escapeHeading = Math.atan2(dy, dx);
+      ap.perimEscaping = true;
+      ap.perimPhase = 'reverse';
+      ap.perimTimer = 0;
+      ap.posHistory = [];
+    }
+    if (near > MARGIN * 1.5) {
+      ap.perimEscaping = false;
+      ap.perimPhase = 'none';
+    }
+
+    if (ap.perimEscaping) {
+      ap.perimTimer += dt;
+      if (ap.perimPhase === 'reverse') {
+        if (ap.perimTimer >= 0.3) {
+          ap.perimPhase = 'rotate';
+          ap.perimTimer = 0;
+        }
+        return [-REVERSE_SPD * 0.7, -REVERSE_SPD * 0.7];
+      }
+      if (ap.perimPhase === 'rotate') {
+        var perr = ((ap.escapeHeading - duck.th + Math.PI) % (2 * Math.PI)) - Math.PI;
+        if (Math.abs(perr) < 0.08) {
+          ap.perimPhase = 'go';
+          ap.perimTimer = 0;
+        }
+        return [-TURN_SP * Math.sign(perr), TURN_SP * Math.sign(perr)];
+      }
+      return [maxSpeed * 0.5, maxSpeed * 0.5];
     }
 
     if (Math.abs(goalErr) < HDG_TOL) return [maxSpeed, maxSpeed];
@@ -347,10 +379,10 @@ button:disabled{opacity:0.4;cursor:default}
   function resetAll() {
     duck.x = startX; duck.y = startY; duck.th = 0; duck.ls = 0; duck.rs = 0;
     arrived = false;
-    sens = [300, 300, 300]; trail = [];
+    sens = [20, 20, 20]; trail = [];
     ap = {
       avoidState: 'none', avoidTimer: 0, avoidTurnDir: null,
-      escapeTimer: 0, escapeDir: 'left', posHistory: []
+      escapeTimer: 0, escapeDir: 'left', posHistory: [], perimEscaping: false, escapeHeading: 0, perimPhase: 'none', perimTimer: 0
     };
     syncSliders();
   }

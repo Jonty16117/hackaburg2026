@@ -22,8 +22,15 @@ END_Y_CM = 100
 SONAR_TRIG = 23
 SONAR_ECHO = 24
 
+SONAR_BLIND_ZONE_CM = 20
+
+def compute_obstacle_threshold(cfg):
+    reaction_cm = (cfg["EXPLORE_SPEED"] * cfg["MAX_SPEED_CM_S"]) / cfg["LOOP_HZ"]
+    reverse_cm = cfg["AVOID_REVERSE_SPEED"] * cfg["MAX_SPEED_CM_S"] * cfg["AVOID_REVERSE_TIME"]
+    distance_cm = SONAR_BLIND_ZONE_CM + 5 + reaction_cm + reverse_cm
+    return max(30, round(distance_cm))
+
 BRAIN_CFG = {
-    "OBSTACLE_THRESHOLD_CM": 50,
     "PERIMETER_MARGIN_CM": 30,
     "EXPLORE_SPEED": 0.4,
     "TURN_SPEED": 0.5,
@@ -48,3 +55,4 @@ BRAIN_CFG = {
     "SONAR_FAIL_SPEED_SCALE": 0.3,
     "LOOP_HZ": 20,
 }
+BRAIN_CFG["OBSTACLE_THRESHOLD_CM"] = compute_obstacle_threshold(BRAIN_CFG)
