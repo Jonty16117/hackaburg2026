@@ -160,6 +160,11 @@ button:disabled{opacity:0.4;cursor:default}
   var clamp = function(v,l,h){ return v<l?l:v>h?h:v; };
   var deg = function(r){ return (r*180/Math.PI).toFixed(1); };
   var np = function(){ return { x: duck.x+14*Math.cos(duck.th), y: duck.y+14*Math.sin(duck.th) }; };
+  var svgPoint = function(e){
+    var pt = svm.createSVGPoint();
+    pt.x = e.clientX; pt.y = e.clientY;
+    return pt.matrixTransform(svm.getScreenCTM().inverse());
+  };
 
   // --- DOM refs ---
   var svm = $('map'),
@@ -360,7 +365,7 @@ button:disabled{opacity:0.4;cursor:default}
     if (ap.avoidState === 'none' && f > 0 && f < obsDist) {
       ap.avoidState = 'reverse'; ap.avoidTimer = 0;
       ap.avoidTurnDir = l > r ? 'left' : 'right';
-      if (l > 0 && r > 0 && l + r >= GAP_TH) ap.avoidTurnDir = 'straight';
+      if (l > 0 && l < obsDist && r > 0 && r < obsDist && l + r >= GAP_TH) ap.avoidTurnDir = 'straight';
       return [-REVERSE_SPD, -REVERSE_SPD];
     }
 
@@ -449,18 +454,16 @@ button:disabled{opacity:0.4;cursor:default}
   // --- click to add/remove obstacles ---
   svm.addEventListener('click', function(e) {
     if (mode === 'real' || dragging || e.button !== 0) return;
-    var r = svm.getBoundingClientRect();
-    var x = (e.clientX - r.left) * (PW / r.width);
-    var y = (e.clientY - r.top) * (PH / r.height);
-    if (x < 2 || x > PW - 2 || y < 2 || y > PH - 2) return;
-    if (Math.hypot(x - startX, y - startY) < DUCK_R + 10) return;
-    if (Math.hypot(x - endX, y - endY) < DUCK_R + 10) return;
+    var p = svgPoint(e);
+    if (p.x < 2 || p.x > PW - 2 || p.y < 2 || p.y > PH - 2) return;
+    if (Math.hypot(p.x - startX, p.y - startY) < DUCK_R + 10) return;
+    if (Math.hypot(p.x - endX, p.y - endY) < DUCK_R + 10) return;
     for (var i = obstacles.length - 1; i >= 0; i--)
-      if (Math.hypot(x - obstacles[i].x, y - obstacles[i].y) < obstacles[i].r + 5) {
+      if (Math.hypot(p.x - obstacles[i].x, p.y - obstacles[i].y) < obstacles[i].r + 10) {
         obstacles.splice(i, 1);
         return;
       }
-    obstacles.push({x: x, y: y, r: 5 + Math.random() * 10});
+    obstacles.push({x: p.x, y: p.y, r: 5 + Math.random() * 10});
   });
 
   // --- drag start/end markers ---
@@ -477,9 +480,9 @@ button:disabled{opacity:0.4;cursor:default}
 
   svm.addEventListener('mousemove', function(e) {
     if (!dragging) return;
-    var r = svm.getBoundingClientRect();
-    var x = clamp((e.clientX - r.left) * (PW / r.width), 10, PW - 10);
-    var y = clamp((e.clientY - r.top) * (PH / r.height), 10, PH - 10);
+    var p = svgPoint(e);
+    var x = clamp(p.x, 10, PW - 10);
+    var y = clamp(p.y, 10, PH - 10);
     if (dragging === 'start') {
       startX = x; startY = y;
       $('start-pt').setAttribute('cx', x);
