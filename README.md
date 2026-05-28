@@ -10,6 +10,7 @@ A floating robot built into a duck decoy. Two brushless motors provide water pro
 
 See **[docs/assembly.md](docs/assembly.md)** for the full step-by-step assembly and testing guide.
 See **[docs/diagrams.md](docs/diagrams.md)** for wiring diagrams and pinouts.
+See **[assembly_diagram.jpg](assembly_diagram.jpg)** for a visual wiring diagram.
 
 ```bash
 # Calibrate ESCs (run once per setup)
