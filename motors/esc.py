@@ -1,9 +1,6 @@
 import RPi.GPIO as GPIO
 import time
 
-GPIO.setmode(GPIO.BCM)
-GPIO.setwarnings(False)
-
 PWM_FREQ = 50
 PULSE_MIN = 1000
 PULSE_NEUTRAL = 1500

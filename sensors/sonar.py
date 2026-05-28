@@ -1,9 +1,6 @@
 import RPi.GPIO as GPIO
 import time
 
-GPIO.setmode(GPIO.BCM)
-GPIO.setwarnings(False)
-
 SPEED_OF_SOUND = 34300  # cm/s at 20°C
 
 

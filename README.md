@@ -18,6 +18,9 @@ python -m scripts.calibrate
 
 # Test motors
 python -m scripts.run
+
+# Autonomous navigation (sense → think → act)
+python -m navigation.controller
 ```
 
 ## Project Structure
@@ -33,8 +36,13 @@ hackaburg2026/
 │   └── drive.py             # Differential drive (tank steer)
 ├── sensors/                 # Sensor drivers
 │   └── sonar.py             # RCWL-1655 ultrasonic
+├── navigation/              # Autonomous control
+│   ├── config.py             # Tunable constants (perimeter, speeds, thresholds)
+│   ├── odometry.py           # Dead reckoning from motor commands
+│   ├── perimeter.py          # Virtual boundary awareness
+│   ├── brain.py              # 4-state FSM with smart sonar-scan avoidance
+│   └── controller.py         # Main 20 Hz sense→think→act loop
 ├── detection/               # Camera + object detection (future)
-├── navigation/              # Obstacle avoidance + autonomy (future)
 └── scripts/                 # Runnable entry points
     ├── calibrate.py         # ESC calibration wizard
     └── run.py               # Motor test (manual + auto sequence)
@@ -56,10 +64,8 @@ hackaburg2026/
 ## Features
 
 - [x] Battery acquired (4S 14.8V 2200mAh 35C)
+- [x] State-machine autonomous navigation (sonar + odometry + perimeter)
 - [ ] Forward / reverse / turning via differential thrust
 - [ ] ESC calibration and PWM motor control
 - [ ] Ultrasonic obstacle sensing (RCWL-1655)
-- [ ] Real-time camera object detection
-- [ ] Autonomous obstacle avoidance
-- [ ] Waterproof electronics enclosure
 - [ ] Field test in water
