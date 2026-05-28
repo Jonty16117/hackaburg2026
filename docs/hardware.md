@@ -8,8 +8,9 @@
 | 2 | APISQUEEN 30A Bi-directional ESC | 2-4S LiPo, BEC 5V/1A, 14AWG | 28×15×6mm, 36g, 30A > 17A max per thruster |
 | - | APISQUEEN — [apisqueen.net](https://apisqueen.net) | Underwater thruster/motor/ESC manufacturer | Shop: [underwaterthruster.com](https://www.underwaterthruster.com) |
 | 1 | Raspberry Pi | Any with GPIO (Pi 3/4/5/Zero 2W) | Runs motor control + detection |
-| 1 | RCWL-1655 | Ultrasonic distance sensor | Obiect avoidance |
-| 1 | LiPo Battery | 2S-4S (7.4V – 16.8V) | Powers ESCs → motors; BEC powers Pi (optional) |
+| 1 | RCWL-1655 | Ultrasonic distance sensor | Object avoidance |
+| 1 | CCPM Servo Tester | 3-channel, knob control, 1000-2000µs PWM output | Quick motor test without Pi |
+| 1 | LiPo Battery | 3S-4S (12V – 16.8V), 5000mAh+ | Powers ESCs → thrusters |
 | 1 | Camera | USB or CSI | For object detection |
 | 1 | Duck Decoy Hull | Commercial / 3D-printed | Houses all electronics |
 

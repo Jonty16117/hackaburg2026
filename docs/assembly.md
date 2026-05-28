@@ -7,6 +7,7 @@
 | 2 | APISQUEEN U01 Thrusters | One CW, one CCW (counter-rotating pair) |
 | 2 | APISQUEEN 30A Bi-directional ESC | 2-4S, BEC 5V/1A; 30A > 17A per thruster |
 | 1 | Raspberry Pi | Any model with 40-pin GPIO |
+| 1 | CCPM Servo Tester | 3-channel, 3 modes: MAN / NEUTRAL / AUTO |
 | 1 | LiPo Battery 3S-4S | 12-16V, recommended: 4S 5000mAh+ |
 | 1 | Power bank / USB-C cable | Powers the Pi |
 | - | Jumper wires (female-female) | For ESC signal → Pi GPIO |
@@ -16,6 +17,60 @@
 ### About CW/CCW Thruster Pair
 
 The U01 comes in CW (clockwise) and CCW (counter-clockwise) versions. For differential steering, use one of each — this naturally cancels out torque and lets both thrusters push in the same direction when mounted opposite. Mount them so both face the same way on the hull.
+
+## Quick Test with Servo Tester (No Pi Required)
+
+This is the fastest way to verify your motors and ESCs work. Nothing but battery + ESC + servo tester.
+
+### Wiring
+
+```
+    LiPo Battery (3S-4S)
+          │
+    ┌─────┴─────┐
+    │           │
+    │ B+    B-  │
+    │ ●     ●   │
+    │  ESC      │
+    │           │
+    │ ●  ●  ●   │──── 3 black wires ──── U01 Thruster
+    │           │
+    │ Br R  O   │── 3-pin signal header
+    └──┬──┬──┬──┘
+       │  │  │
+       │  │  └── Orange ── CH1 signal (yellow/white on servo tester)
+       │  └───── Red ───── CH1 +5V (powered by ESC BEC)
+       └──────── Brown ─── CH1 GND
+           │
+    ┌──────┴──────┐
+    │   CH1  CH2  CH3  │◄── Only need CH1
+    │  [S]  [±]  [S]  [±]  [S]  [±]  │
+    │   Servo Tester     │
+    │  MAN  NEUTRAL  AUTO│
+    │        [KNOB]      │
+    └────────────────────┘
+```
+
+### Steps
+
+1. **Wire ESC → motor:** ESC 3 black wires → U01 thruster (green, yellow, sky blue).
+2. **Wire ESC → servo tester:** Plug ESC 3-pin header (brown/red/orange) into CH1 on the servo tester. Match polarity — brown=GND, red=5V, orange=signal.
+3. **Connect battery:** Thick red (+) and black (-) from ESC to LiPo.
+4. **Switch to MAN mode:** Turn knob to minimum (counter-clockwise).
+5. **Plug in battery:** ESC will beep — it's alive.
+6. **Slowly turn knob clockwise:** Motor should spin up. Turn CCW to spin down.
+7. **Switch to AUTO mode:** Motor sweeps automatically full range.
+8. **Switch to NEUTRAL:** Motor stops (1500µs center).
+
+Repeat for the second ESC/thruster on CH2 or CH3.
+
+> The servo tester is powered by the ESC's BEC (5V) via the red wire — no separate power needed.
+
+---
+
+## Pi-Based Setup & Testing
+
+If you want software control (differential steering, object detection, etc.), continue below.
 
 ## Before You Start
 

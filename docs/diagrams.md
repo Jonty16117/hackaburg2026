@@ -177,5 +177,65 @@ GPIO23──┤ TRIG     │
 
     4x M3 mounting screws on 75×75mm square pattern
     Total thruster weight: 178g each
-    Thrust: 2Kg at 16V (4S)
+     Thrust: 2Kg at 16V (4S)
+```
+
+---
+
+## Quick Test with CCPM Servo Tester (No Pi)
+
+```
+    ┌──────────────────────────┐
+    │     LiPo 3S-4S           │
+    │   (+)          (-)       │
+    └────┬────────────┬────────┘
+         │ RED        │ BLACK
+         │            │
+    ┌────┴────────────┴────────┐
+    │        ESC               │
+    │  B+ [●]          [●] B-  │
+    │                          │
+    │  [███] 3x black ─────────┼─── U01 THRUSTER
+    │                          │      (G Y SB)
+    │  [Br] [R] [O] 3-pin     │
+    └───┬────┬────┬────────────┘
+        │    │    │
+     BROWN  RED  ORANGE
+     (GND) (5V) (PWM)
+        │    │    │
+    ┌───┴────┴────┴────────────┐
+    │  CH1 ( S  +  - )        │
+    │  CH2 ( S  +  - )        │◄── test 2nd ESC here
+    │  CH3 ( S  +  - )        │
+    │                          │
+    │    MAN   NEUTRAL   AUTO  │
+    │           (KNOB)         │
+    │    CCPM SERVO TESTER     │
+    └──────────────────────────┘
+
+    MAN:     knob controls speed  (1000-2000µs)
+    NEUTRAL: fixed stop          (1500µs)
+    AUTO:    auto sweep range    (1000→2000→1000)
+```
+
+---
+
+## Servo Tester Modes
+
+```
+         MANUAL mode                          AUTO mode
+    Knob position → speed               Sweeps full range
+    
+    2000µs ┤ ████  (full fwd)           2000µs ┤    ╱╲
+           │ ████                                │   ╱  ╲
+    1750µs ┤ ████  (half fwd)           1750µs ┤  ╱    ╲
+           │ ████                                │ ╱      ╲
+    1500µs ┤ ████  (stop)               1500µs ┤╱        ╲
+           │                               time ───────────
+    1250µs ┤ ████  (half rev)
+           │ ████
+    1000µs ┤ ████  (full rev)
+    
+        NEUTRAL mode
+    Fixed 1500µs output — motor stopped
 ```

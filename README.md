@@ -46,6 +46,7 @@ hackaburg2026/
 |-----------|------|
 | Motors/Thrusters | 2x APISQUEEN U01 (12-16V, 2Kg thrust each, CW+CCW) |
 | ESCs | 2x APISQUEEN 30A Bi-directional (BEC 5V/1A, 2-4S) |
+| Servo Tester | CCPM 3-channel (MAN/NEUTRAL/AUTO) — quick test without Pi |
 | Controller | Raspberry Pi |
 | Sonar | RCWL-1655 ultrasonic |
 | Battery | LiPo 2S-4S (TBD) |
