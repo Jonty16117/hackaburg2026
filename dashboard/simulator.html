@@ -122,7 +122,6 @@ button:disabled{opacity:0.4;cursor:default}
   var PW = 1000, PH = 200,
       DUCK_R = 15,
       OBST_TH = 25, MARGIN = 30,
-      GAP_TH = 50,
       TURN_SP = 0.5, REVERSE_SPD = 0.5,
       MAX_SPD = 100, WB = 30, HDG_TOL = 0.02,
       AVOID_REVERSE_S = 0.5, AVOID_TURN_S = 0.5, AVOID_COOLDOWN_S = 0.3,
@@ -151,8 +150,7 @@ button:disabled{opacity:0.4;cursor:default}
         posHistory: [],
         perimEscaping: false,
         escapeHeading: 0,
-        perimCooldown: 0,
-        avoidLockout: 0
+        perimCooldown: 0
       };
 
   // --- helpers ---
@@ -346,9 +344,8 @@ button:disabled{opacity:0.4;cursor:default}
       }
 
       if (ap.avoidState === 'turn') {
-        if (ap.avoidTimer >= AVOID_TURN_S || ap.avoidTurnDir === 'straight') {
+        if (ap.avoidTimer >= AVOID_TURN_S) {
           ap.avoidState = 'cooldown'; ap.avoidTimer = 0;
-          return [0, 0];
         }
         return ap.avoidTurnDir === 'left'
           ? [TURN_SP, -TURN_SP] : [-TURN_SP, TURN_SP];
@@ -357,7 +354,6 @@ button:disabled{opacity:0.4;cursor:default}
       if (ap.avoidState === 'cooldown') {
         if (ap.avoidTimer >= AVOID_COOLDOWN_S) {
           ap.avoidState = 'none'; ap.avoidTimer = 0;
-          ap.avoidLockout = 0.5;
         }
       }
     }
@@ -365,14 +361,8 @@ button:disabled{opacity:0.4;cursor:default}
     if (ap.avoidState === 'none' && f > 0 && f < obsDist) {
       ap.avoidState = 'reverse'; ap.avoidTimer = 0;
       ap.avoidTurnDir = l > r ? 'left' : 'right';
-      if (l > 0 && l < obsDist && r > 0 && r < obsDist && l + r >= GAP_TH) ap.avoidTurnDir = 'straight';
       return [-REVERSE_SPD, -REVERSE_SPD];
     }
-
-    if (l > 0 && l < obsDist) return [maxSpeed * 0.3, maxSpeed];
-    if (r > 0 && r < obsDist) return [maxSpeed, maxSpeed * 0.3];
-
-    if (ap.avoidLockout > 0) { ap.avoidLockout -= dt; return [maxSpeed * 0.5, maxSpeed * 0.5]; }
 
     if (Math.abs(goalErr) < HDG_TOL) return [maxSpeed, maxSpeed];
 
@@ -391,7 +381,7 @@ button:disabled{opacity:0.4;cursor:default}
     sens = [20, 20, 20]; trail = [];
     ap = {
       avoidState: 'none', avoidTimer: 0, avoidTurnDir: null,
-      escapeTimer: 0, escapeDir: 'left', posHistory: [], perimEscaping: false, escapeHeading: 0, perimCooldown: 0, avoidLockout: 0
+      escapeTimer: 0, escapeDir: 'left', posHistory: [], perimEscaping: false, escapeHeading: 0, perimCooldown: 0
     };
     syncSliders();
   }
@@ -454,15 +444,19 @@ button:disabled{opacity:0.4;cursor:default}
   // --- click to add/remove obstacles ---
   svm.addEventListener('click', function(e) {
     if (mode === 'real' || dragging || e.button !== 0) return;
+    if (e.target.tagName === 'circle' && e.target.parentNode === elObs) {
+      var cx = parseFloat(e.target.getAttribute('cx'));
+      var cy = parseFloat(e.target.getAttribute('cy'));
+      for (var i = obstacles.length - 1; i >= 0; i--)
+        if (Math.abs(obstacles[i].x - cx) < 0.5 && Math.abs(obstacles[i].y - cy) < 0.5) {
+          obstacles.splice(i, 1);
+          return;
+        }
+    }
     var p = svgPoint(e);
     if (p.x < 2 || p.x > PW - 2 || p.y < 2 || p.y > PH - 2) return;
     if (Math.hypot(p.x - startX, p.y - startY) < DUCK_R + 10) return;
     if (Math.hypot(p.x - endX, p.y - endY) < DUCK_R + 10) return;
-    for (var i = obstacles.length - 1; i >= 0; i--)
-      if (Math.hypot(p.x - obstacles[i].x, p.y - obstacles[i].y) < obstacles[i].r + 10) {
-        obstacles.splice(i, 1);
-        return;
-      }
     obstacles.push({x: p.x, y: p.y, r: 5 + Math.random() * 10});
   });
 
