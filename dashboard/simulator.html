@@ -56,7 +56,7 @@ button:disabled{opacity:0.4;cursor:default}
   <circle id="beam-front-pt" cx="0" cy="0" r="3" fill="#00ff88" opacity="0"/>
   <circle id="beam-left-pt" cx="0" cy="0" r="3" fill="#ffcc00" opacity="0"/>
   <circle id="beam-right-pt" cx="0" cy="0" r="3" fill="#ffcc00" opacity="0"/>
-  <circle id="duck-ring" cx="500" cy="100" r="15" fill="none" stroke="#ff444420" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <circle id="duck-ring" cx="500" cy="100" r="15" fill="none" stroke="#ff8800" stroke-opacity="0.4" stroke-width="2" stroke-dasharray="4,3"/>
   <polygon id="duck" points="0,-7 16,0 0,7" fill="#ff4444" stroke="#ff6666" stroke-width="1.5" stroke-linejoin="round"/>
   <g id="start-marker" cursor="grab">
     <circle id="start-pt" cx="500" cy="100" r="5" fill="#00ff88" stroke="#00ff88" stroke-width="1.5"/>
@@ -220,6 +220,7 @@ button:disabled{opacity:0.4;cursor:default}
     elDuck.setAttribute('transform', 'translate('+duck.x+','+duck.y+') rotate('+deg(duck.th)+')');
     $('duck-ring').setAttribute('cx', duck.x);
     $('duck-ring').setAttribute('cy', duck.y);
+    $('duck-ring').setAttribute('r', DUCK_R);
     if (arrived) {
       var pulse = Math.sin(performance.now() / 400) * 0.5 + 0.5;
       var rv = Math.floor(255 * (1 - pulse)), gv = Math.floor(100 + 155 * pulse);
