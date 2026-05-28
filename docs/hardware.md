@@ -113,3 +113,51 @@ Battery: 4S1P 14.8V, 2200mAh, 32.56Wh
 
 > 4S (16.8V fully charged) is the U01's **optimal voltage** — max thrust and efficiency.
 > Battery burst rating 154A >> 34A max draw — no sag under load.
+
+---
+
+## Navigation Controller
+
+The autonomous control loop runs at ~20 Hz in `navigation/controller.py`:
+
+```
+Sonar (RCWL-1655) ──┐
+                    ├──▶ Brain FSM ──▶ DuckDrive ──▶ ESCs → Thrusters
+Odometry (x,y,θ) ───┘       ▲
+                          │
+Perimeter (10m×2m) ───────┘
+```
+
+### Tunable Parameters (in `navigation/config.py`)
+
+| Parameter | Default | Purpose | Calibration |
+|-----------|---------|---------|-------------|
+| `MAX_SPEED_CM_S` | 100 | cm/s at full throttle (speed=1.0) | Time 2m sprint in water |
+| `WHEEL_BASE_CM` | 30 | Distance between thruster centers | Measure with ruler |
+| `OBSTACLE_THRESHOLD_CM` | 50 | Sonar distance that triggers AVOID | Test with obstacle |
+| `PERIMETER_MARGIN_CM` | 30 | How close to edge before turning | Larger = safer, less coverage |
+| `SONAR_TRIG` / `SONAR_ECHO` | GPIO 23 / 24 | RCWL-1655 pin assignment | Match physical wiring |
+| `LEFT_PIN` / `RIGHT_PIN` | GPIO 12 / 13 | ESC PWM signal pins | Match physical wiring |
+
+### Perimeter
+
+Defined as a rectangle in `navigation/config.py`:
+
+```python
+PERIMETER_WIDTH_CM  = 1000  # 10 meters
+PERIMETER_HEIGHT_CM = 200   # 2 meters
+START_X_CM = 500   # center X
+START_Y_CM = 100   # center Y
+START_HEADING_RAD = 0.0  # facing +X (East)
+```
+
+The robot starts at center pointing along the long axis. Odometry tracks position from motor commands. When within `PERIMETER_MARGIN_CM` of any edge, the robot turns toward center and drives inward.
+
+### Operational States
+
+| State | Trigger | Action |
+|-------|---------|--------|
+| **EXPLORE** | Default | Forward at 40% speed with periodic jitter |
+| **AVOID** | Sonar < 50cm | Reverse → scan L/R → turn toward clearer side |
+| **TURN_TO_CENTER** | Near perimeter edge | Turn toward centroid → drive forward until clear |
+| **STUCK** | 3× AVOID in 10s | Reverse + tight turn escape for 2s |

@@ -1,5 +1,4 @@
 import RPi.GPIO as GPIO
-import time
 
 PWM_FREQ = 50
 PULSE_MIN = 1000

@@ -64,8 +64,6 @@ def main():
     perim = Perimeter(PERIMETER_CM)
     brain = Brain(perim, BRAIN_CFG)
 
-    min_x, max_x, min_y, max_y = perim.bounds()
-
     print("=" * 72)
     print("DuckBot — Autonomous Navigation Controller")
     print(f"  Perimeter : {PERIMETER_CM[2][0]} × {PERIMETER_CM[2][1]} cm")

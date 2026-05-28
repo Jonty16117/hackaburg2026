@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DuckBot Dashboard</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font:14px/1.4 monospace;background:#0d1b2a;color:#e0e0e0;display:flex;height:100vh;overflow:hidden}
+#map{flex:1;background:#0a1628;cursor:crosshair;min-width:0}
+#panel{width:280px;background:#111d2e;padding:12px;overflow-y:auto;display:flex;flex-direction:column;gap:10px;border-left:2px solid #1a3a5c}
+h2{font-size:13px;color:#4fc3f7;text-transform:uppercase;letter-spacing:1px;border-bottom:1px solid #1a3a5c;padding-bottom:4px;margin-top:4px}
+.mode{display:flex;gap:4px}
+.mode button{flex:1;padding:6px;border:none;cursor:pointer;font:inherit;font-weight:bold;border-radius:4px;background:#1a3a5c;color:#889}
+.mode button.active{background:#1565c0;color:#fff}
+.ws-status{font-size:11px;padding:2px 6px;border-radius:3px;display:inline-block}
+.ws-on{background:#1b5e20;color:#81c784}
+.ws-off{background:#4a1a1a;color:#ef9a9a}
+label{font-size:12px;color:#90a4ae;display:flex;justify-content:space-between;align-items:center}
+label span{min-width:42px;text-align:right;color:#4fc3f7;font-weight:bold}
+input[type=range]{width:100%;accent-color:#4fc3f7;margin:2px 0}
+input[type=text]{padding:4px 6px;border:1px solid #1a3a5c;background:#0d1b2a;color:#e0e0e0;border-radius:3px;font:inherit}
+.btn-row{display:flex;gap:4px}
+.btn-row button{flex:1;padding:6px;border:none;cursor:pointer;font:inherit;font-weight:bold;border-radius:4px}
+.btn-start{background:#1b5e20;color:#81c784}
+.btn-stop{background:#4a1a1a;color:#ef9a9a}
+.btn-neutral{background:#1a3a5c;color:#ccc}
+.dpad{display:grid;grid-template:repeat(3,1fr)/repeat(3,1fr);gap:3px;width:120px;margin:0 auto}
+.dpad button{padding:8px;font:inherit;font-weight:bold;border:none;border-radius:4px;background:#1a3a5c;color:#ccc;cursor:pointer}
+.dpad button:active{background:#4fc3f7;color:#000}
+.telem{font-size:12px;width:100%}
+.telem td{padding:2px 6px}
+.telem td:first-child{color:#90a4ae;text-align:right;white-space:nowrap}
+.telem td:last-child{color:#4fc3f7;font-weight:bold}
+.conn-row{display:flex;gap:4px;align-items:center}
+#pi-ip{flex:1}
+button:disabled{opacity:0.4;cursor:default}
+</style>
+</head>
+<body>
+
+<svg id="map" viewBox="-30 -10 1060 220" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <pattern id="grid" width="50" height="50" patternUnits="userSpaceOnUse">
+      <path d="M 50 0 L 0 0 0 50" fill="none" stroke="#123456" stroke-width="0.3"/>
+    </pattern>
+  </defs>
+  <rect x="0" y="0" width="1000" height="200" fill="url(#grid)"/>
+  <rect x="0" y="0" width="1000" height="200" fill="none" stroke="#2d6ea0" stroke-width="3" rx="4"/>
+  <text x="500" y="110" fill="#123456" font-size="20" text-anchor="middle" opacity="0.4">DuckBot Pool</text>
+  <text x="500" y="192" fill="#1a3a5c" font-size="10" text-anchor="middle">1000 cm (10 m)</text>
+  <g id="obstacles"></g>
+  <polyline id="trail" fill="none" stroke="#00ff8850" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <line id="beam-front" x1="0" y1="0" x2="0" y2="0" stroke="#00ff8860" stroke-width="2" stroke-linecap="round"/>
+  <line id="beam-left" x1="0" y1="0" x2="0" y2="0" stroke="#ffcc0060" stroke-width="2" stroke-linecap="round"/>
+  <line id="beam-right" x1="0" y1="0" x2="0" y2="0" stroke="#ffcc0060" stroke-width="2" stroke-linecap="round"/>
+  <circle id="beam-front-pt" cx="0" cy="0" r="3" fill="#00ff88" opacity="0"/>
+  <circle id="beam-left-pt" cx="0" cy="0" r="3" fill="#ffcc00" opacity="0"/>
+  <circle id="beam-right-pt" cx="0" cy="0" r="3" fill="#ffcc00" opacity="0"/>
+  <polygon id="duck" points="0,-7 16,0 0,7" fill="#ff4444" stroke="#ff6666" stroke-width="1.5" stroke-linejoin="round"/>
+  <text id="brain-label" x="500" y="12" fill="#4fc3f7" font-size="11" text-anchor="middle" font-weight="bold" opacity="0"></text>
+</svg>
+
+<div id="panel">
+  <h2>Mode</h2>
+  <div class="mode">
+    <button id="btn-sim" class="active">SIM</button>
+    <button id="btn-real">REAL</button>
+  </div>
+  <div id="conn-row" class="conn-row" style="display:none">
+    <input id="pi-ip" placeholder="Pi IP" value="192.168.4.1" size="14">
+    <button id="btn-connect" class="btn-neutral" style="width:80px">Connect</button>
+    <span id="ws-stat" class="ws-status ws-off">off</span>
+  </div>
+
+  <h2>Sensors (cm)</h2>
+  <label>Front <span id="v-front">300</span></label>
+  <input id="s-front" type="range" min="5" max="600" value="300">
+  <label>Left <span id="v-left">300</span></label>
+  <input id="s-left" type="range" min="5" max="600" value="300">
+  <label>Right <span id="v-right">300</span></label>
+  <input id="s-right" type="range" min="5" max="600" value="300">
+
+  <h2>Drive</h2>
+  <div class="dpad">
+    <div></div><button id="btn-fwd">W</button><div></div>
+    <button id="btn-left">A</button><button id="btn-stop">S</button><button id="btn-right">D</button>
+    <div></div><button id="btn-rev" style="opacity:0.5">R</button><div></div>
+  </div>
+  <label>Speed <span id="v-speed">0.40</span></label>
+  <input id="s-speed" type="range" min="0.1" max="1" step="0.05" value="0.4">
+
+  <h2>Auto-Pilot</h2>
+  <div class="btn-row">
+    <button id="btn-auto-start" class="btn-start">Start</button>
+    <button id="btn-auto-stop" class="btn-stop">Stop</button>
+  </div>
+
+  <h2>Telemetry</h2>
+  <table class="telem">
+    <tr><td>State</td><td id="t-state">IDLE</td></tr>
+    <tr><td>Heading</td><td id="t-heading">0.0&deg;</td></tr>
+    <tr><td>Position</td><td id="t-pos">(0,0)</td></tr>
+    <tr><td>L / R Speed</td><td id="t-speeds">0.00 / 0.00</td></tr>
+    <tr><td>Sonar F/L/R</td><td id="t-sonar">- / - / -</td></tr>
+    <tr><td>Inside</td><td id="t-inside">yes</td></tr>
+    <tr><td>Edge dist</td><td id="t-edge">100 cm</td></tr>
+  </table>
+
+  <div class="btn-row">
+    <button id="btn-reset" class="btn-neutral">Reset</button>
+    <button id="btn-clear-obs" class="btn-neutral">Clear Obstacles</button>
+  </div>
+</div>
+
+<script>
+(function() {
+  // --- config (mirrors navigation/config.py) ---
+  var PW = 1000, PH = 200,
+      OBST_TH = 50, MARGIN = 30,
+      EXPLORE = 0.4, TURN_SP = 0.5, MAX_SPD = 100, WB = 30, HDG_TOL = 0.26,
+      JIT_TIME = 6, JIT_AMT = 0.10,
+      AVOID_COOLDOWN = 2, STUCK_THRESH = 3, STUCK_WINDOW = 10, STUCK_ESC = 2;
+
+  // --- state ---
+  var mode = 'sim',
+      duck = { x: 500, y: 100, th: 0, ls: 0, rs: 0 },
+      sens = [300, 300, 300],  // front, left, right (cm)
+      obstacles = [],
+      autopilot = false,
+      trail = [],
+      ap = { cooldown:0, hist:[], stuck:false, stuckT:0, jitT:0, jitB:0 };
+
+  // --- helpers ---
+  var $ = function(id){ return document.getElementById(id); };
+  var clamp = function(v,l,h){ return v<l?l:v>h?h:v; };
+  var deg = function(r){ return (r*180/Math.PI).toFixed(1); };
+  var np = function(){ return { x: duck.x+14*Math.cos(duck.th), y: duck.y+14*Math.sin(duck.th) }; };
+
+  // --- DOM refs ---
+  var svm = $('map'),
+      elTrail = $('trail'), elDuck = $('duck'),
+      elBF = $('beam-front'), elBL = $('beam-left'), elBR = $('beam-right'),
+      elBFP = $('beam-front-pt'), elBLP = $('beam-left-pt'), elBRP = $('beam-right-pt'),
+      elBrain = $('brain-label'), elObs = $('obstacles'),
+      slF = $('s-front'), slL = $('s-left'), slR = $('s-right'), slSpd = $('s-speed');
+
+  // --- physics (matches odometry.py) ---
+  function step(dt) {
+    var vl = duck.ls * MAX_SPD, vr = duck.rs * MAX_SPD;
+    var v = (vl+vr)/2, w = (vr-vl)/WB;
+    duck.x = clamp(duck.x + v*Math.cos(duck.th)*dt, 0, PW);
+    duck.y = clamp(duck.y + v*Math.sin(duck.th)*dt, 0, PH);
+    duck.th += w*dt;
+    duck.th = Math.atan2(Math.sin(duck.th), Math.cos(duck.th));
+  }
+
+  // --- raycast (line + circle intersection) ---
+  function ray(ox, oy, ang) {
+    var best = 9999, dx = Math.cos(ang), dy = Math.sin(ang);
+    function hit(x3,y3,x4,y4) {
+      var d = dx*(y3-y4) - dy*(x3-x4);
+      if (Math.abs(d) < 1e-9) return;
+      var t = ((ox-x3)*(y3-y4) - (oy-y3)*(x3-x4)) / d;
+      var u = -((dx*(oy-y3) - dy*(ox-x3))) / d;
+      if (t>=0 && u>=0 && u<=1) { var dist = Math.hypot(ox+dx*t-ox, oy+dy*t-oy); if (dist<best) best=dist; }
+    }
+    hit(0,0,PW,0); hit(PW,0,PW,PH); hit(PW,PH,0,PH); hit(0,PH,0,0);
+    for (var i=0; i<obstacles.length; i++) {
+      var o = obstacles[i], fx=ox-o.x, fy=oy-o.y;
+      var a=dx*dx+dy*dy, b=2*(fx*dx+fy*dy), c=fx*fx+fy*fy-o.r*o.r, disc=b*b-4*a*c;
+      if (disc<0) continue;
+      var t1=(-b-Math.sqrt(disc))/(2*a), t2=(-b+Math.sqrt(disc))/(2*a);
+      if (t1>=0&&t1<best) best=t1; else if (t2>=0&&t2<best) best=t2;
+    }
+    return best<9999 ? best : null;
+  }
+
+  // --- render ---
+  function render() {
+    var n = np();
+    elDuck.setAttribute('transform', 'translate('+duck.x+','+duck.y+') rotate('+deg(duck.th)+')');
+    var dirs = [0, -Math.PI/4, Math.PI/4];
+    var beams = [elBF, elBL, elBR], bpts = [elBFP, elBLP, elBRP];
+    for (var i=0; i<3; i++) {
+      var ang = duck.th + dirs[i], dcm = sens[i];
+      if (dcm <= 0) dcm = 0.1;
+      var ex = n.x + dcm*Math.cos(ang), ey = n.y + dcm*Math.sin(ang);
+      beams[i].setAttribute('x1',n.x); beams[i].setAttribute('y1',n.y);
+      beams[i].setAttribute('x2',ex); beams[i].setAttribute('y2',ey);
+      bpts[i].setAttribute('cx',ex); bpts[i].setAttribute('cy',ey);
+      bpts[i].setAttribute('opacity','1');
+    }
+    var pts = '';
+    for (var j=0; j<trail.length; j++) pts += trail[j].x+','+trail[j].y+' ';
+    if (!pts) pts = '0,0 0,0';
+    elTrail.setAttribute('points', pts);
+    var oh = '';
+    for (var k=0; k<obstacles.length; k++)
+      oh += '<circle cx="'+obstacles[k].x+'" cy="'+obstacles[k].y+'" r="'+obstacles[k].r+'" fill="#ff4444" fill-opacity="0.3" stroke="#ff6666" stroke-width="1"/>';
+    elObs.innerHTML = oh;
+  }
+
+  function renderTelemetry() {
+    var inside = duck.x>=1 && duck.x<=PW-1 && duck.y>=1 && duck.y<=PH-1;
+    var edges = [duck.x, PW-duck.x, duck.y, PH-duck.y];
+    $('t-state').textContent = autopilot ? (ap.stuck ? 'STUCK' : 'AUTO') : 'MANUAL';
+    $('t-heading').innerHTML = deg(duck.th)+'&deg;';
+    $('t-pos').textContent = '('+duck.x.toFixed(0)+', '+duck.y.toFixed(0)+')';
+    $('t-speeds').textContent = duck.ls.toFixed(2)+' / '+duck.rs.toFixed(2);
+    $('t-sonar').textContent = sens.map(function(s){ return s>0 ? s : '-'; }).join(' / ');
+    $('t-inside').textContent = inside ? 'yes' : 'OUTSIDE!';
+    $('t-edge').textContent = Math.min.apply(null, edges).toFixed(0)+' cm';
+  }
+
+  // --- auto-pilot (3-sensor FSM, mirrors brain.py) ---
+  function autoPilot(dt) {
+    var f=sens[0], l=sens[1], r=sens[2];
+    if (ap.stuck) {
+      ap.stuckT += dt;
+      if (ap.stuckT > STUCK_ESC) { ap.stuck=false; ap.stuckT=0; ap.hist=[]; }
+      return [-TURN_SP, TURN_SP];
+    }
+    if (ap.cooldown > 0) ap.cooldown = Math.max(0, ap.cooldown-dt);
+    if (ap.cooldown <= 0 && f < OBST_TH) {
+      var now = performance.now()/1000;
+      ap.hist.push(now);
+      var cutoff = now - STUCK_WINDOW;
+      ap.hist = ap.hist.filter(function(t){ return t>cutoff; });
+      if (ap.hist.length >= STUCK_THRESH) { ap.stuck=true; ap.stuckT=0; return [-TURN_SP, TURN_SP]; }
+      ap.cooldown = AVOID_COOLDOWN;
+      return l>r ? [-TURN_SP, TURN_SP] : [TURN_SP, -TURN_SP];
+    }
+    if (l < OBST_TH) return [TURN_SP*0.7, EXPLORE];
+    if (r < OBST_TH) return [EXPLORE, TURN_SP*0.7];
+    var near = Math.min(duck.x, PW-duck.x, duck.y, PH-duck.y);
+    if (near < MARGIN) {
+      var cx=PW/2, cy=PH/2, bearing = Math.atan2(cy-duck.y, cx-duck.x);
+      var err = ((bearing - duck.th + Math.PI) % (2*Math.PI)) - Math.PI;
+      if (Math.abs(err) < HDG_TOL) return [EXPLORE, EXPLORE];
+      return [-TURN_SP*Math.sign(err), TURN_SP*Math.sign(err)];
+    }
+    ap.jitT += dt;
+    if (ap.jitT > JIT_TIME) { ap.jitT=0; ap.jitB=(Math.random()*2-1)*JIT_AMT; }
+    return [EXPLORE - ap.jitB, EXPLORE + ap.jitB];
+  }
+
+  function drive(ls, rs) { if (mode==='sim') { duck.ls=clamp(ls,-1,1); duck.rs=clamp(rs,-1,1); } }
+
+  function resetAll() {
+    duck.x=500; duck.y=100; duck.th=0; duck.ls=0; duck.rs=0;
+    sens=[300,300,300]; trail=[];
+    ap={cooldown:0,hist:[],stuck:false,stuckT:0,jitT:0,jitB:0};
+    syncSliders();
+  }
+
+  function syncSliders() {
+    slF.value=sens[0]; $('v-front').textContent=sens[0];
+    slL.value=sens[1]; $('v-left').textContent=sens[1];
+    slR.value=sens[2]; $('v-right').textContent=sens[2];
+  }
+
+  // --- main loop ---
+  var lastT = 0;
+  function loop(t) {
+    var dt = lastT ? Math.min((t-lastT)/1000, 0.1) : 0.016; lastT = t;
+    if (autopilot && mode!=='real') { var sp = autoPilot(dt); duck.ls=sp[0]; duck.rs=sp[1]; }
+    step(dt);
+    trail.push({x:duck.x, y:duck.y}); if (trail.length>40) trail.shift();
+    render(); renderTelemetry();
+    requestAnimationFrame(loop);
+  }
+
+  // --- sensor sliders ---
+  slF.oninput = function(){ sens[0]=+this.value; $('v-front').textContent=sens[0]; };
+  slL.oninput = function(){ sens[1]=+this.value; $('v-left').textContent=sens[1]; };
+  slR.oninput = function(){ sens[2]=+this.value; $('v-right').textContent=sens[2]; };
+  slSpd.oninput = function(){ $('v-speed').textContent=this.value; };
+
+  // --- manual drive ---
+  function setDrive(ls,rs){ drive(ls,rs); }
+  $('btn-fwd').onmousedown=function(){setDrive(slSpd.value,slSpd.value);};
+  $('btn-rev').onmousedown=function(){setDrive(-slSpd.value,-slSpd.value);};
+  $('btn-left').onmousedown=function(){setDrive(-slSpd.value,slSpd.value);};
+  $('btn-right').onmousedown=function(){setDrive(slSpd.value,-slSpd.value);};
+  $('btn-stop').onmousedown=function(){setDrive(0,0);};
+  document.addEventListener('mouseup', function(){if(mode==='sim'&&!autopilot)setDrive(0,0);});
+  document.addEventListener('keydown', function(e){
+    if(e.target.tagName==='INPUT') return;
+    var s = +slSpd.value;
+    switch(e.key.toLowerCase()){
+      case 'w': setDrive(s,s); break; case 's': setDrive(-s,-s); break;
+      case 'a': setDrive(-s,s); break; case 'd': setDrive(s,-s); break;
+      case 'q': setDrive(0,0); break;
+    }
+  });
+  document.addEventListener('keyup', function(e){
+    if(e.target.tagName==='INPUT') return;
+    if('wasd'.includes(e.key.toLowerCase()) && !autopilot) setDrive(0,0);
+  });
+
+  // --- click to place/remove obstacles ---
+  svm.addEventListener('click', function(e){
+    if (mode==='real' || e.target!==svm) return;
+    var r = svm.getBoundingClientRect();
+    var x = (e.clientX-r.left)*(PW/r.width), y = (e.clientY-r.top)*(PH/r.height);
+    if (x<0||x>PW||y<0||y>PH) return;
+    for (var i=0; i<obstacles.length; i++)
+      if (Math.hypot(x-obstacles[i].x, y-obstacles[i].y) < obstacles[i].r+5) { obstacles.splice(i,1); return; }
+    obstacles.push({x:x, y:y, r:8});
+  });
+
+  // --- mode switching ---
+  var es = null;
+  $('btn-sim').onclick = function(){
+    mode='sim'; this.classList.add('active'); $('btn-real').classList.remove('active');
+    $('conn-row').style.display='none'; $('btn-auto-start').disabled=false; $('btn-auto-stop').disabled=false;
+    slF.disabled=false; slL.disabled=false; slR.disabled=false;
+    if (es) { es.close(); es=null; } $('ws-stat').className='ws-status ws-off'; $('ws-stat').textContent='off';
+    resetAll();
+  };
+  $('btn-real').onclick = function(){
+    mode='real'; this.classList.add('active'); $('btn-sim').classList.remove('active');
+    $('conn-row').style.display='flex'; autopilot=false;
+    $('btn-auto-start').disabled=true; $('btn-auto-stop').disabled=true;
+    slF.disabled=true; slL.disabled=true; slR.disabled=true;
+  };
+
+  $('btn-connect').onclick = function(){
+    if (es) { es.close(); es=null; }
+    var ip = $('pi-ip').value.trim();
+    if (this.textContent === 'Disconnect') { $('ws-stat').className='ws-status ws-off'; $('ws-stat').textContent='off'; this.textContent='Connect'; return; }
+    es = new EventSource('http://'+ip+':8080/stream');
+    es.onopen = function(){
+      $('ws-stat').className='ws-status ws-on'; $('ws-stat').textContent='live';
+      $('btn-connect').textContent='Disconnect';
+    };
+    es.onmessage = function(e){
+      var s = JSON.parse(e.data);
+      duck.x=s.x_cm; duck.y=s.y_cm; duck.th=s.theta_rad;
+      duck.ls=s.left_speed; duck.rs=s.right_speed;
+      sens[0]=s.sonar_front||0; sens[1]=s.sonar_left||0; sens[2]=s.sonar_right||0;
+      elBrain.setAttribute('opacity','1');
+      elBrain.textContent = s.brain_state + (s.avoid_phase ? ' / '+s.avoid_phase : '');
+      $('t-state').textContent = s.brain_state || 'REAL';
+      syncSliders();
+    };
+    es.onerror = function(){
+      $('ws-stat').className='ws-status ws-off'; $('ws-stat').textContent='lost';
+      $('btn-connect').textContent='Reconnect';
+      elBrain.setAttribute('opacity','0');
+    };
+  };
+
+  // --- buttons ---
+  $('btn-auto-start').onclick = function(){ autopilot=true; drive(0,0); };
+  $('btn-auto-stop').onclick = function(){ autopilot=false; drive(0,0); };
+  $('btn-reset').onclick = function(){ resetAll(); };
+  $('btn-clear-obs').onclick = function(){ obstacles=[]; };
+
+  // --- start ---
+  syncSliders(); $('conn-row').style.display='none';
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

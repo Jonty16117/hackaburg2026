@@ -242,11 +242,43 @@ Choose manual (`m`) or auto (`a`) mode.
 
 ---
 
+## Step 7: Run Autonomous Navigation
+
+The navigation controller runs the full sense→think→act loop — reading sonar, dead-reckoning position, and running the state machine to explore within a perimeter while avoiding obstacles.
+
+```bash
+python -m navigation.controller
+```
+
+The robot will:
+- Read sonar distance continuously
+- Dead-reckon its (x, y, heading) from motor speed commands
+- Run a 4-state FSM (EXPLORE → AVOID → TURN_TO_CENTER → STUCK)
+- Avoid obstacles using a smart look-left-look-right sonar scan
+- Stay within the perimeter defined in `navigation/config.py` (default: 10m × 2m)
+- Log position, state, and sensor readings to console
+
+**Before running in water, tune these values in `navigation/config.py`:**
+
+| Parameter | Default | How to Tune |
+|-----------|---------|-------------|
+| `PERIMETER_WIDTH_CM` / `HEIGHT_CM` | 1000 / 200 | Set to your pool/test area dimensions |
+| `WHEEL_BASE_CM` | 30 | Measure actual center-to-center distance between thrusters |
+| `MAX_SPEED_CM_S` | 100 | Time robot over 2m at full throttle, calculate cm/s |
+| `OBSTACLE_THRESHOLD_CM` | 50 | Adjust for desired safety margin |
+| `PERIMETER_MARGIN_CM` | 30 | How close to edge before turning — use larger if odometry drifts |
+
+See **[docs/architecture.md](architecture.md)** for the full state machine and pipeline documentation.
+
+---
+
 ## Next Steps
 
 - [x] Acquire LiPo battery — **4S 14.8V 2200mAh on hand**
+- [x] Integrate RCWL-1655 sonar — see `sensors/sonar.py`
 - [ ] Source or 3D-print motor mounts for U01 (75×75mm footprint, STP file available from APISQUEEN)
 - [ ] Waterproof all connections (epoxy potting or marine heat shrink)
 - [ ] Mount thrusters facing same direction (CW on one side, CCW on other)
-- [ ] Integrate RCWL-1655 sonar
+- [ ] Run autonomous navigation: `python -m navigation.controller`
+- [ ] Tune `WHEEL_BASE_CM` and `MAX_SPEED_CM_S` in `navigation/config.py` after water test
 - [ ] Integrate camera for object detection

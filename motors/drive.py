@@ -49,12 +49,12 @@ class DuckDrive:
         self.right.set_pulse(right_us)
 
     def drive_speeds(self, left_speed, right_speed):
-        left_speed = max(-1.0, min(1.0, left_speed))
-        right_speed = max(-1.0, min(1.0, right_speed))
-        left_pulse = int(PULSE_NEUTRAL + left_speed * (PULSE_MAX - PULSE_NEUTRAL))
-        right_pulse = int(PULSE_NEUTRAL + right_speed * (PULSE_MAX - PULSE_NEUTRAL))
-        self.left.set_pulse(self._invert(left_pulse, self.left_invert))
-        self.right.set_pulse(self._invert(right_pulse, self.right_invert))
+        ls = max(-1.0, min(1.0, left_speed))
+        rs = max(-1.0, min(1.0, right_speed))
+        lp = int(PULSE_NEUTRAL + ls * (PULSE_MAX - PULSE_NEUTRAL))
+        rp = int(PULSE_NEUTRAL + rs * (PULSE_MAX - PULSE_NEUTRAL))
+        self.set_raw(self._invert(lp, self.left_invert),
+                     self._invert(rp, self.right_invert))
 
     def cleanup(self):
         self.left.cleanup()

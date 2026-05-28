@@ -8,6 +8,7 @@ Usage:
 
 import sys
 import time
+import RPi.GPIO as GPIO
 from motors.drive import DuckDrive
 
 LEFT_PIN = 12
@@ -74,6 +75,8 @@ def manual_control(drive):
 
 
 def main():
+    GPIO.setmode(GPIO.BCM)
+    GPIO.setwarnings(False)
     mode = sys.argv[1] if len(sys.argv) > 1 else None
 
     print("DuckBot — Motor Control")
