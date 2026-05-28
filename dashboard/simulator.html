@@ -7,6 +7,7 @@
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font:14px/1.4 monospace;background:#0d1b2a;color:#e0e0e0;display:flex;height:100vh;overflow:hidden}
+#map text{user-select:none;-webkit-user-select:none}
 #map{flex:1;background:#0a1628;cursor:crosshair;min-width:0}
 #panel{width:280px;background:#111d2e;padding:12px;overflow-y:auto;display:flex;flex-direction:column;gap:10px;border-left:2px solid #1a3a5c}
 h2{font-size:13px;color:#4fc3f7;text-transform:uppercase;letter-spacing:1px;border-bottom:1px solid #1a3a5c;padding-bottom:4px;margin-top:4px}
@@ -111,6 +112,7 @@ button:disabled{opacity:0.4;cursor:default}
   <div class="btn-row">
     <button id="btn-reset" class="btn-neutral">Reset</button>
     <button id="btn-clear-obs" class="btn-neutral">Clear Obstacles</button>
+    <button id="btn-dump" class="btn-neutral" style="background:#1a3a5c;color:#4fc3f7;margin-top:4px">Dump Debug</button>
   </div>
 </div>
 
@@ -131,6 +133,8 @@ button:disabled{opacity:0.4;cursor:default}
   var mode = 'sim',
       duck = { x: startX, y: startY, th: 0, ls: 0, rs: 0 },
       sens = [20, 20, 20],
+      debugBuf = [],
+      debugLimit = 500,
       obstacles = [],
       autopilot = false,
       arrived = false,
@@ -244,7 +248,7 @@ button:disabled{opacity:0.4;cursor:default}
     var inside = duck.x>=1 && duck.x<=PW-1 && duck.y>=1 && duck.y<=PH-1;
     var edges = [duck.x, PW-duck.x, duck.y, PH-duck.y];
     var stateLabel = arrived ? 'ARRIVED' : (!autopilot ? 'IDLE'
-      : (ap.perimEscaping ? 'PERIM/'+ap.perimPhase.toUpperCase() : (ap.escapeTimer > 0 ? 'ESCAPE' : (ap.avoidState !== 'none' ? ap.avoidState.toUpperCase() : 'GO'))));
+      : (ap.perimEscaping ? 'PERIM' : (ap.escapeTimer > 0 ? 'ESCAPE' : (ap.avoidState !== 'none' ? ap.avoidState.toUpperCase() : 'GO'))));
     $('t-state').textContent = stateLabel;
     $('t-heading').innerHTML = deg(duck.th)+'&deg;';
     $('t-pos').textContent = '('+duck.x.toFixed(0)+', '+duck.y.toFixed(0)+')';
@@ -293,6 +297,26 @@ button:disabled{opacity:0.4;cursor:default}
       }
     }
 
+    var near = Math.min(duck.x, PW - duck.x, duck.y, PH - duck.y);
+    if (near < MARGIN && !ap.perimEscaping) {
+      var dx = 0, dy = 0;
+      if (duck.x < MARGIN) dx = MARGIN - duck.x;
+      if (PW - duck.x < MARGIN) dx -= (duck.x - (PW - MARGIN));
+      if (duck.y < MARGIN) dy = MARGIN - duck.y;
+      if (PH - duck.y < MARGIN) dy -= (duck.y - (PH - MARGIN));
+      ap.escapeHeading = Math.atan2(dy, dx);
+      ap.perimEscaping = true;
+      ap.avoidState = 'none'; ap.avoidTimer = 0;
+      ap.posHistory = [];
+    }
+    if (near > MARGIN * 2) ap.perimEscaping = false;
+
+    if (ap.perimEscaping) {
+      var perr = ((ap.escapeHeading - duck.th + Math.PI) % (2 * Math.PI)) - Math.PI;
+      if (Math.abs(perr) < 0.08) return [maxSpeed, maxSpeed];
+      return [-TURN_SP * Math.sign(perr), TURN_SP * Math.sign(perr)];
+    }
+
     if (ap.avoidState !== 'none') {
       ap.avoidTimer += dt;
 
@@ -327,44 +351,6 @@ button:disabled{opacity:0.4;cursor:default}
     if (l > 0 && l < obsDist) return [maxSpeed * 0.3, maxSpeed];
     if (r > 0 && r < obsDist) return [maxSpeed, maxSpeed * 0.3];
 
-    var near = Math.min(duck.x, PW - duck.x, duck.y, PH - duck.y);
-    if (near < MARGIN && !ap.perimEscaping) {
-      var dx = 0, dy = 0;
-      if (duck.x < MARGIN) dx = MARGIN - duck.x;
-      if (PW - duck.x < MARGIN) dx -= (duck.x - (PW - MARGIN));
-      if (duck.y < MARGIN) dy = MARGIN - duck.y;
-      if (PH - duck.y < MARGIN) dy -= (duck.y - (PH - MARGIN));
-      ap.escapeHeading = Math.atan2(dy, dx);
-      ap.perimEscaping = true;
-      ap.perimPhase = 'reverse';
-      ap.perimTimer = 0;
-      ap.posHistory = [];
-    }
-    if (near > MARGIN * 1.5) {
-      ap.perimEscaping = false;
-      ap.perimPhase = 'none';
-    }
-
-    if (ap.perimEscaping) {
-      ap.perimTimer += dt;
-      if (ap.perimPhase === 'reverse') {
-        if (ap.perimTimer >= 0.3) {
-          ap.perimPhase = 'rotate';
-          ap.perimTimer = 0;
-        }
-        return [-REVERSE_SPD * 0.7, -REVERSE_SPD * 0.7];
-      }
-      if (ap.perimPhase === 'rotate') {
-        var perr = ((ap.escapeHeading - duck.th + Math.PI) % (2 * Math.PI)) - Math.PI;
-        if (Math.abs(perr) < 0.08) {
-          ap.perimPhase = 'go';
-          ap.perimTimer = 0;
-        }
-        return [-TURN_SP * Math.sign(perr), TURN_SP * Math.sign(perr)];
-      }
-      return [maxSpeed * 0.5, maxSpeed * 0.5];
-    }
-
     if (Math.abs(goalErr) < HDG_TOL) return [maxSpeed, maxSpeed];
 
     var turnDir = Math.sign(goalErr);
@@ -382,7 +368,7 @@ button:disabled{opacity:0.4;cursor:default}
     sens = [20, 20, 20]; trail = [];
     ap = {
       avoidState: 'none', avoidTimer: 0, avoidTurnDir: null,
-      escapeTimer: 0, escapeDir: 'left', posHistory: [], perimEscaping: false, escapeHeading: 0, perimPhase: 'none', perimTimer: 0
+      escapeTimer: 0, escapeDir: 'left', posHistory: [], perimEscaping: false, escapeHeading: 0
     };
     syncSliders();
   }
@@ -411,6 +397,28 @@ button:disabled{opacity:0.4;cursor:default}
     step(dt);
     trail.push({x:duck.x, y:duck.y}); if (trail.length>40) trail.shift();
     render(); renderTelemetry();
+    if (autopilot) {
+      debugBuf.push({
+        t: (t/1000).toFixed(2), x: duck.x.toFixed(1), y: duck.y.toFixed(1),
+        th: deg(duck.th), ls: duck.ls.toFixed(2), rs: duck.rs.toFixed(2),
+        f: sens[0].toFixed(0), l: sens[1].toFixed(0), r: sens[2].toFixed(0),
+        near: Math.min(duck.x,PW-duck.x,duck.y,PH-duck.y).toFixed(0),
+        perimEscaping: ap.perimEscaping, avoidState: ap.avoidState,
+        escapeTimer: ap.escapeTimer.toFixed(2)
+      });
+      if (debugBuf.length > debugLimit) debugBuf.shift();
+      var live = {
+        f: debugBuf.length, t: (t/1000).toFixed(1),
+        x: duck.x.toFixed(0), y: duck.y.toFixed(0), th: deg(duck.th),
+        ls: duck.ls.toFixed(2), rs: duck.rs.toFixed(2),
+        sf: sens[0].toFixed(0), sl: sens[1].toFixed(0), sr: sens[2].toFixed(0),
+        near: Math.min(duck.x,PW-duck.x,duck.y,PH-duck.y).toFixed(0),
+        pe: ap.perimEscaping, as: ap.avoidState, et: ap.escapeTimer.toFixed(2)
+      };
+      if (debugBuf.length < 3 || debugBuf.length % 3 === 0) {
+        fetch('/push', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(live)}).catch(function(){});
+      }
+    }
     requestAnimationFrame(loop);
   }
 
@@ -541,6 +549,19 @@ button:disabled{opacity:0.4;cursor:default}
   $('btn-auto-stop').onclick = function(){ autopilot=false; arrived=false; setDrive(0,0); };
   $('btn-reset').onclick = function(){ resetAll(); };
   $('btn-clear-obs').onclick = function(){ obstacles=[]; };
+  $('btn-dump').onclick = function(){
+    var blob = new Blob([JSON.stringify({
+      config: {PW: PW, PH: PH, MARGIN: MARGIN, DUCK_R: DUCK_R, OBST_TH: OBST_TH, maxSpeed: maxSpeed, HDG_TOL: HDG_TOL},
+      start: {x: startX, y: startY}, end: {x: endX, y: endY},
+      obstacles: obstacles.map(function(o){ return {x: o.x.toFixed(0), y: o.y.toFixed(0), r: o.r.toFixed(0)}; }),
+      frames: debugBuf
+    }, null, 2)], {type: 'application/json'});
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'duckbot-debug-' + new Date().toISOString().replace(/:/g,'-').slice(0,19) + '.json';
+    a.click();
+    debugBuf = [];
+  };
 
   // --- start ---
   syncSliders(); $('conn-row').style.display='none';

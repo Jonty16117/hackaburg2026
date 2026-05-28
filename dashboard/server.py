@@ -63,6 +63,9 @@ _state = {
 }
 _lock = threading.Lock()
 
+_live_buf = []  # latest 200 frames pushed by sim HTML
+_LIVE_MAX = 200
+
 
 @app.get("/")
 async def index():
@@ -78,6 +81,24 @@ async def get_config():
                   "theta": START_HEADING_RAD},
         "end": {"x": END_X_CM, "y": END_Y_CM},
     }
+
+
+@app.post("/push")
+async def push_telemetry(request: Request):
+    data = await request.json()
+    with _lock:
+        _live_buf.append(data)
+        if len(_live_buf) > _LIVE_MAX:
+            _live_buf[:] = _live_buf[-_LIVE_MAX:]
+    return {"ok": True}
+
+
+@app.get("/live")
+async def get_live():
+    with _lock:
+        latest = _live_buf[-1] if _live_buf else {}
+        count = len(_live_buf)
+    return {"latest": latest, "frame_count": count, "buffer": _live_buf[-50:]}
 
 
 @app.get("/stream")
