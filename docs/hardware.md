@@ -10,7 +10,7 @@
 | 1 | Raspberry Pi | Any with GPIO (Pi 3/4/5/Zero 2W) | Runs motor control + detection |
 | 1 | RCWL-1655 | Ultrasonic distance sensor | Object avoidance |
 | 1 | CCPM Servo Tester | 3-channel, knob control, 1000-2000µs PWM output | Quick motor test without Pi |
-| 1 | LiPo Battery | 3S-4S (12V – 16.8V), 5000mAh+ | Powers ESCs → thrusters |
+| 1 | LiPo Battery | 4S1P 14.8V, 2200mAh, 35C/70C burst, 32.56Wh | 77A cont / 154A burst, plenty for 2 thrusters (34A max combined) |
 | 1 | Camera | USB or CSI | For object detection |
 | 1 | Duck Decoy Hull | Commercial / 3D-printed | Houses all electronics |
 
@@ -97,3 +97,19 @@ Raspberry Pi ── USB power bank / separate 5V supply
 | 1000 | Full reverse |
 | 1500 | Neutral / stop |
 | 2000 | Full forward |
+
+---
+
+## Battery Runtime Estimates
+
+Battery: 4S1P 14.8V, 2200mAh, 32.56Wh
+
+| Throttle | Current (per thruster) | Total draw | Runtime |
+|----------|:---------------------:|:----------:|---------|
+| Full (100%) | 17A | 34A | ~4 min |
+| Half (50%) | ~8.5A | ~17A | ~8 min |
+| Cruise (30%) | ~5A | ~10A | ~13 min |
+| Idle | 0A | 0.2A (ESCs) | hours |
+
+> 4S (16.8V fully charged) is the U01's **optimal voltage** — max thrust and efficiency.
+> Battery burst rating 154A >> 34A max draw — no sag under load.

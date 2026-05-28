@@ -8,7 +8,7 @@
 | 2 | APISQUEEN 30A Bi-directional ESC | 2-4S, BEC 5V/1A; 30A > 17A per thruster |
 | 1 | Raspberry Pi | Any model with 40-pin GPIO |
 | 1 | CCPM Servo Tester | 3-channel, 3 modes: MAN / NEUTRAL / AUTO |
-| 1 | LiPo Battery 3S-4S | 12-16V, recommended: 4S 5000mAh+ |
+| 1 | LiPo Battery 4S1P 14.8V | 2200mAh, 35C/70C, 32.56Wh — onboard |
 | 1 | Power bank / USB-C cable | Powers the Pi |
 | - | Jumper wires (female-female) | For ESC signal → Pi GPIO |
 | - | Screwdriver / wire strippers | For any terminal blocks |
@@ -244,7 +244,7 @@ Choose manual (`m`) or auto (`a`) mode.
 
 ## Next Steps
 
-- [ ] Acquire 3S-4S LiPo battery (recommended: 4S 5000mAh+ for test runs)
+- [x] Acquire LiPo battery — **4S 14.8V 2200mAh on hand**
 - [ ] Source or 3D-print motor mounts for U01 (75×75mm footprint, STP file available from APISQUEEN)
 - [ ] Waterproof all connections (epoxy potting or marine heat shrink)
 - [ ] Mount thrusters facing same direction (CW on one side, CCW on other)

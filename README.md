@@ -49,12 +49,13 @@ hackaburg2026/
 | Servo Tester | CCPM 3-channel (MAN/NEUTRAL/AUTO) — quick test without Pi |
 | Controller | Raspberry Pi |
 | Sonar | RCWL-1655 ultrasonic |
-| Battery | LiPo 2S-4S (TBD) |
+| Battery | 4S1P 14.8V LiPo (2200mAh, 35C/70C, 32.56Wh) |
 | Camera | TBD |
 | Hull | Duck decoy / 3D printed |
 
 ## Features
 
+- [x] Battery acquired (4S 14.8V 2200mAh 35C)
 - [ ] Forward / reverse / turning via differential thrust
 - [ ] ESC calibration and PWM motor control
 - [ ] Ultrasonic obstacle sensing (RCWL-1655)
