@@ -18,8 +18,8 @@ The DuckBot runs a **sense → think → act** loop on the Raspberry Pi.
 
 | Module | Purpose | Tech |
 |--------|---------|------|
-| `motors/esc.py` | Low-level ESC PWM driver | RPi.GPIO |
-| `motors/drive.py` | Differential drive abstraction (DuckDrive) | — |
+| `motors/esc.py` | Low-level ESC PWM driver | RPi.GPIO, 50Hz PWM |
+| `motors/drive.py` | Differential drive for APISQUEEN U01 thrusters | — |
 | `sensors/sonar.py` | RCWL-1655 distance readings | RPi.GPIO |
 | `detection/` | Camera capture + object detection (future) | OpenCV, YOLO/TFLite |
 | `navigation/` | Obstacle avoidance + path planning (future) | — |
@@ -47,11 +47,24 @@ Script (run.py)
 
 ## PWM Signal Spec
 
-- Frequency: **50 Hz** (standard RC ESC)
+- Frequency: **50 Hz** (standard) — ESCs also support 100Hz/200Hz/500Hz
 - Period: **20 ms**
 - Pulse range: **1000 µs to 2000 µs**
 - Neutral/stop: **1500 µs**
 - Bidirectional: above 1500 = forward, below 1500 = reverse
+- ESC auto-detects signal type (PWM, Oneshot, Multishot, Dshot150/300/600)
+
+## Motor Specs (APISQUEEN U01)
+
+| Spec | Value |
+|------|-------|
+| Voltage | 12-16V (3S-4S LiPo) |
+| Max power | 390W per thruster |
+| Max current | 17A per thruster |
+| Thrust | 2Kg per thruster |
+| Size | 75×75mm |
+| Weight | 178g |
+| CW/CCW | Available in both — use one of each for counter-rotating pair |
 
 ## GPIO Allocation
 

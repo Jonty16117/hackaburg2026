@@ -42,7 +42,7 @@ hackaburg2026/
 
 | Component | Spec |
 |-----------|------|
-| Motors | 2x APISQUEEN BLDC (3-wire, waterproof) |
+| Motors/Thrusters | 2x APISQUEEN U01 (12-16V, 2Kg thrust each, CW+CCW) |
 | ESCs | 2x APISQUEEN 30A Bi-directional (BEC 5V/1A, 2-4S) |
 | Controller | Raspberry Pi |
 | Sonar | RCWL-1655 ultrasonic |

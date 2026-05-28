@@ -4,8 +4,8 @@
 
 | # | Component | Spec | Notes |
 |---|-----------|------|-------|
-| 2 | APISQUEEN BLDC Motors | 3-wire (green, yellow, sky blue) | Waterproof brushless, model/KV TBD |
-| 2 | APISQUEEN Bi-directional 30A ESC | 2-4S LiPo, BEC 5V/1A, 14AWG | 28×15×6mm, 36g; 3 black → motor; thick red/black → battery; brown/red/orange signal header |
+| 2 | APISQUEEN U01 Thrusters | 12-16V (3S-4S), 390W, 17A max, 2Kg thrust | 75×75mm, 178g, freshwater, CW+CCW pair |
+| 2 | APISQUEEN 30A Bi-directional ESC | 2-4S LiPo, BEC 5V/1A, 14AWG | 28×15×6mm, 36g, 30A > 17A max per thruster |
 | - | APISQUEEN — [apisqueen.net](https://apisqueen.net) | Underwater thruster/motor/ESC manufacturer | Shop: [underwaterthruster.com](https://www.underwaterthruster.com) |
 | 1 | Raspberry Pi | Any with GPIO (Pi 3/4/5/Zero 2W) | Runs motor control + detection |
 | 1 | RCWL-1655 | Ultrasonic distance sensor | Obiect avoidance |

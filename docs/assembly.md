@@ -4,14 +4,18 @@
 
 | # | Part | Notes |
 |---|------|-------|
-| 2 | APISQUEEN BLDC Motors | 3-wire: green, yellow, sky blue |
-| 2 | APISQUEEN 30A Bi-directional ESC | 2-4S, BEC 5V/1A |
+| 2 | APISQUEEN U01 Thrusters | One CW, one CCW (counter-rotating pair) |
+| 2 | APISQUEEN 30A Bi-directional ESC | 2-4S, BEC 5V/1A; 30A > 17A per thruster |
 | 1 | Raspberry Pi | Any model with 40-pin GPIO |
-| 1 | LiPo Battery 2S-4S | Not yet acquired — needed for actual spin-up |
+| 1 | LiPo Battery 3S-4S | 12-16V, recommended: 4S 5000mAh+ |
 | 1 | Power bank / USB-C cable | Powers the Pi |
 | - | Jumper wires (female-female) | For ESC signal → Pi GPIO |
 | - | Screwdriver / wire strippers | For any terminal blocks |
 | - | Electrical tape / heat shrink | Insulate connections |
+
+### About CW/CCW Thruster Pair
+
+The U01 comes in CW (clockwise) and CCW (counter-clockwise) versions. For differential steering, use one of each — this naturally cancels out torque and lets both thrusters push in the same direction when mounted opposite. Mount them so both face the same way on the hull.
 
 ## Before You Start
 
@@ -185,9 +189,9 @@ Choose manual (`m`) or auto (`a`) mode.
 
 ## Next Steps
 
-- [ ] Acquire 2S-4S LiPo battery
-- [ ] Source or 3D-print motor mounts
+- [ ] Acquire 3S-4S LiPo battery (recommended: 4S 5000mAh+ for test runs)
+- [ ] Source or 3D-print motor mounts for U01 (75×75mm footprint, STP file available from APISQUEEN)
 - [ ] Waterproof all connections (epoxy potting or marine heat shrink)
-- [ ] Install propellers (balanced, counter-rotating)
+- [ ] Mount thrusters facing same direction (CW on one side, CCW on other)
 - [ ] Integrate RCWL-1655 sonar
 - [ ] Integrate camera for object detection
