@@ -69,6 +69,8 @@ class Brain:
 
     def _pick_direction(self, d_left, d_right):
         if d_left is not None and d_right is not None:
+            if d_left + d_right >= self.cfg["GAP_THRESHOLD_CM"]:
+                return "straight"
             return "left" if d_left > d_right else "right"
         if d_left is not None:
             return "left"
@@ -179,7 +181,7 @@ class Brain:
             return (0.0, 0.0)
 
         if self._avoid_phase == _AvoidPhase.COMPLETE_TURN:
-            if elapsed >= self.cfg["COMPLETE_TURN_TIME"]:
+            if elapsed >= self.cfg["COMPLETE_TURN_TIME"] or self._chosen_dir == "straight":
                 self._avoid_phase = _AvoidPhase.DONE
                 self._avoid_phase_start = _time.time()
                 return self._handle_avoid(sonar_cm)

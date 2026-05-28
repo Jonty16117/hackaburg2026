@@ -121,7 +121,8 @@ button:disabled{opacity:0.4;cursor:default}
   // --- config (mirrors navigation/config.py) ---
   var PW = 1000, PH = 200,
       DUCK_R = 15,
-      OBST_TH = 50, MARGIN = 30,
+      OBST_TH = 25, MARGIN = 30,
+      GAP_TH = 50,
       TURN_SP = 0.5, REVERSE_SPD = 0.5,
       MAX_SPD = 100, WB = 30, HDG_TOL = 0.02,
       AVOID_REVERSE_S = 0.5, AVOID_TURN_S = 0.5, AVOID_COOLDOWN_S = 0.3,
@@ -149,7 +150,8 @@ button:disabled{opacity:0.4;cursor:default}
         escapeDir: 'left',
         posHistory: [],
         perimEscaping: false,
-        escapeHeading: 0
+        escapeHeading: 0,
+        perimCooldown: 0
       };
 
   // --- helpers ---
@@ -298,7 +300,7 @@ button:disabled{opacity:0.4;cursor:default}
     }
 
     var near = Math.min(duck.x, PW - duck.x, duck.y, PH - duck.y);
-    if (near < MARGIN && !ap.perimEscaping) {
+    if (near < MARGIN && !ap.perimEscaping && ap.perimCooldown <= 0) {
       var dx = 0, dy = 0;
       if (duck.x < MARGIN) dx = MARGIN - duck.x;
       if (PW - duck.x < MARGIN) dx -= (duck.x - (PW - MARGIN));
@@ -309,12 +311,22 @@ button:disabled{opacity:0.4;cursor:default}
       ap.avoidState = 'none'; ap.avoidTimer = 0;
       ap.posHistory = [];
     }
-    if (near > MARGIN * 2) ap.perimEscaping = false;
+    if (near > MARGIN * 2 && ap.perimEscaping) {
+      ap.perimEscaping = false;
+      ap.perimCooldown = 0.5;
+    }
+    if (ap.perimCooldown > 0) ap.perimCooldown -= dt;
 
     if (ap.perimEscaping) {
       var perr = ((ap.escapeHeading - duck.th + Math.PI) % (2 * Math.PI)) - Math.PI;
       if (Math.abs(perr) < 0.08) return [maxSpeed, maxSpeed];
-      return [-TURN_SP * Math.sign(perr), TURN_SP * Math.sign(perr)];
+      return [-Math.sign(perr), Math.sign(perr)];
+    }
+
+    if (ap.perimCooldown > 0) {
+      var cperr = ((ap.escapeHeading - duck.th + Math.PI) % (2 * Math.PI)) - Math.PI;
+      if (Math.abs(cperr) < 0.08) return [maxSpeed, maxSpeed];
+      return [-Math.sign(cperr), Math.sign(cperr)];
     }
 
     if (ap.avoidState !== 'none') {
@@ -328,8 +340,9 @@ button:disabled{opacity:0.4;cursor:default}
       }
 
       if (ap.avoidState === 'turn') {
-        if (ap.avoidTimer >= AVOID_TURN_S) {
+        if (ap.avoidTimer >= AVOID_TURN_S || ap.avoidTurnDir === 'straight') {
           ap.avoidState = 'cooldown'; ap.avoidTimer = 0;
+          return [0, 0];
         }
         return ap.avoidTurnDir === 'left'
           ? [TURN_SP, -TURN_SP] : [-TURN_SP, TURN_SP];
@@ -345,6 +358,7 @@ button:disabled{opacity:0.4;cursor:default}
     if (ap.avoidState === 'none' && f > 0 && f < obsDist) {
       ap.avoidState = 'reverse'; ap.avoidTimer = 0;
       ap.avoidTurnDir = l > r ? 'left' : 'right';
+      if (l > 0 && r > 0 && l + r >= GAP_TH) ap.avoidTurnDir = 'straight';
       return [-REVERSE_SPD, -REVERSE_SPD];
     }
 
@@ -368,7 +382,7 @@ button:disabled{opacity:0.4;cursor:default}
     sens = [20, 20, 20]; trail = [];
     ap = {
       avoidState: 'none', avoidTimer: 0, avoidTurnDir: null,
-      escapeTimer: 0, escapeDir: 'left', posHistory: [], perimEscaping: false, escapeHeading: 0
+      escapeTimer: 0, escapeDir: 'left', posHistory: [], perimEscaping: false, escapeHeading: 0, perimCooldown: 0
     };
     syncSliders();
   }
@@ -404,7 +418,7 @@ button:disabled{opacity:0.4;cursor:default}
         f: sens[0].toFixed(0), l: sens[1].toFixed(0), r: sens[2].toFixed(0),
         near: Math.min(duck.x,PW-duck.x,duck.y,PH-duck.y).toFixed(0),
         perimEscaping: ap.perimEscaping, avoidState: ap.avoidState,
-        escapeTimer: ap.escapeTimer.toFixed(2)
+        escapeTimer: ap.escapeTimer.toFixed(2), perimCooldown: ap.perimCooldown.toFixed(2)
       });
       if (debugBuf.length > debugLimit) debugBuf.shift();
       var live = {
@@ -413,7 +427,7 @@ button:disabled{opacity:0.4;cursor:default}
         ls: duck.ls.toFixed(2), rs: duck.rs.toFixed(2),
         sf: sens[0].toFixed(0), sl: sens[1].toFixed(0), sr: sens[2].toFixed(0),
         near: Math.min(duck.x,PW-duck.x,duck.y,PH-duck.y).toFixed(0),
-        pe: ap.perimEscaping, as: ap.avoidState, et: ap.escapeTimer.toFixed(2)
+        pe: ap.perimEscaping, as: ap.avoidState, et: ap.escapeTimer.toFixed(2), pc: ap.perimCooldown.toFixed(2)
       };
       if (debugBuf.length < 3 || debugBuf.length % 3 === 0) {
         fetch('/push', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(live)}).catch(function(){});
