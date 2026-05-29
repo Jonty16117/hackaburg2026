@@ -100,6 +100,7 @@ class SimEngine:
         self.escape_heading = 0.0
         self.perim_cooldown = 0.0
         self._perim_timer = 0.0
+        self._drive_min_any = 9999  # min of all 3 sensors during current DRIVE
 
         # --- debug & sim time ---
         self.frame = 0
@@ -340,6 +341,7 @@ class SimEngine:
                     self._drive_flip_time = 0.0
                     self._reactive_start_x = self.x
                     self._reactive_start_y = self.y
+                    self._drive_min_any = 9999
                 elif abs(err) < 0.08 and front_blocked and not self._turn_rescored:
                     self._turn_rescored = True
                     nx, ny = self._nose_position()["x"], self._nose_position()["y"]
@@ -361,6 +363,7 @@ class SimEngine:
                         self._drive_flip_time = 0.0
                         self._reactive_start_x = self.x
                         self._reactive_start_y = self.y
+                        self._drive_min_any = 9999
                         self._turn_rescored = False
                     else:
                         return (-self.TURN_SP * td, self.TURN_SP * td)
@@ -414,6 +417,22 @@ class SimEngine:
                         return -self.REVERSE_SPD, -self.REVERSE_SPD
                     self._drive_flip_time = 0.0
                     self._drive_steer_flips = 0
+                # Gap exit: all 3 sensors cleared after being blocked → opening found
+                sl = self.sonar_left or 9999
+                sr = self.sonar_right or 9999
+                self._drive_min_any = min(self._drive_min_any, f, sl, sr)
+                if (self.avoid_timer > 0.3
+                        and self._drive_min_any < 30
+                        and f > 50 and sl > 50 and sr > 50
+                        and abs(heading_error(
+                            math.atan2(self.end["y"] - self.y, self.end["x"] - self.x),
+                            self.theta)) < math.pi / 4
+                        and traveled > 60):
+                    self.avoid_state = "none"
+                    self.avoid_timer = 0.0
+                    self._avoid_cooldown = self.AVOID_COOLDOWN_S
+                    self._record_stuck_position()
+                    return self.max_speed, self.max_speed
                 # Steering: wall-following
                 fwd = self.AVOID_REACTIVE_FWD_SPEED
                 sl = self.sonar_left or 9999
