@@ -25,10 +25,12 @@ SONAR_ECHO = 24
 SONAR_BLIND_ZONE_CM = 20
 DUCK_RADIUS_CM = 15
 
+
 def compute_obstacle_threshold(cfg):
     reaction_cm = (cfg["EXPLORE_SPEED"] * cfg["MAX_SPEED_CM_S"]) / cfg["LOOP_HZ"]
     distance_cm = SONAR_BLIND_ZONE_CM + 3 + reaction_cm
     return max(25, round(distance_cm))
+
 
 BRAIN_CFG = {
     "PERIMETER_MARGIN_CM": 30,
@@ -60,19 +62,21 @@ BRAIN_CFG = {
 }
 BRAIN_CFG["OBSTACLE_THRESHOLD_CM"] = compute_obstacle_threshold(BRAIN_CFG)
 
-# --- Wall Mapping ---
+# --- Wall Mapping (orientation sweep at boot) ---
 MAPPER_SWEEP_SPEED = 0.3
 MAPPER_SWEEP_DEG_STEP = 10
 MAPPER_SONAR_SAMPLES = 3
 MAPPER_BLIND_ZONE_CM = 20
 MAPPER_BLIND_REVERSE_CM = 40
 MAPPER_TOGGLE = True
+MAPPER_VALIDATION_TOLERANCE_CM = 120  # how far off expected distances can the sweep be
+MAPPER_MIN_SPAN_DEG = 30              # minimum angular span for a wall plateau
 
 # --- EKF Localizer ---
 EKF_PROCESS_NOISE_XY = 3.0
 EKF_PROCESS_NOISE_THETA = 0.05
 EKF_SONAR_NOISE_CM2 = 4.0
-EKF_LOCK_COVARIANCE = 25.0
-EKF_LOCK_MIN_OBS = 3
 EKF_SONAR_CONE_HALF_DEG = 37.5
 EKF_INNOVATION_GATE_CM = 80.0
+EKF_LOST_COUNT_MAX = 20
+EKF_X_CORRECTION_INTERVAL_S = 30.0  # bias toward side wall if no x-correction in this time

@@ -1,6 +1,6 @@
 """DuckBot autonomous navigation controller.
 
-Reads sonar, runs boot-time wall sweep, tracks position via EKF,
+Runs boot-time wall orientation sweep, tracks position via EKF,
 and sends motor commands at ~20 Hz.
 
 Usage:
@@ -15,7 +15,7 @@ from navigation.config import (
     PERIMETER_CM, START_X_CM, START_Y_CM, START_HEADING_RAD,
     END_X_CM, END_Y_CM, BRAIN_CFG, MAPPER_TOGGLE,
     MAPPER_SWEEP_SPEED, MAPPER_SWEEP_DEG_STEP, MAPPER_SONAR_SAMPLES,
-    MAPPER_BLIND_ZONE_CM, EKF_LOCK_COVARIANCE, EKF_LOCK_MIN_OBS,
+    MAPPER_BLIND_ZONE_CM,
 )
 from navigation.odometry import Odometry
 from navigation.perimeter import Perimeter
@@ -52,13 +52,13 @@ def run_navigation(on_cycle=None):
     odom = Odometry(START_X_CM, START_Y_CM, START_HEADING_RAD,
                     BRAIN_CFG["WHEEL_BASE_CM"], BRAIN_CFG["MAX_SPEED_CM_S"])
 
-    wall_map = None
+    wall_map = WallMap()
     ekf = None
-    sweep_result = None
+    sweep_info = None
 
     if MAPPER_TOGGLE:
         print("=" * 60)
-        print(" Wall mapping sweep running... (~18s)")
+        print(" Wall orientation sweep running... (~18s)")
         print("=" * 60)
         try:
             sweeper = SonarSweep(
@@ -69,54 +69,42 @@ def run_navigation(on_cycle=None):
                 blind_zone_cm=MAPPER_BLIND_ZONE_CM,
             )
             sweep_result = sweeper.run(odom)
-            wall_map = WallMap()
-            wall_map.init_from_minima(
+            sweep_info = wall_map.init_from_sweep(
                 sweep_result["readings"],
-                duck_x=sweep_result["duck_x"],
-                duck_y=sweep_result["duck_y"],
+                duck_x=START_X_CM,
+                duck_y=START_Y_CM,
             )
-            odom.x = sweep_result["duck_x"]
-            odom.y = sweep_result["duck_y"]
-            odom.theta = 0.0
 
-            n_walls = len(wall_map.walls)
-            print(f"\n Sweep complete: {n_walls}/4 walls detected.")
-            for i, w in enumerate(wall_map.walls):
-                print(f"  Wall {i}: normal={math.degrees(w.normal_angle):.0f}°  "
-                      f"C={w.C:.1f}")
-            if n_walls < 4:
-                print(" WARNING: fewer than 4 walls found — "
-                      "localization will be degraded.")
+            print(f"\n Sweep complete: "
+                  f"Δθ={sweep_info['delta_theta_deg']}° "
+                  f"({sweep_info['walls_seen']}/4 walls seen)")
+            if sweep_info["warning"]:
+                print(f" {sweep_info['prefix']}: {sweep_info['warning']}")
         except Exception as e:
             print(f" Sweep failed: {e}")
-            print(" Falling back to hardcoded perimeter.")
-            wall_map = None
-
-    if wall_map is None:
-        perim = Perimeter(PERIMETER_CM)
+            print(" Using Δθ=0 (hardcoded orientation)")
+            wall_map.init_known_walls(delta_theta=0.0)
     else:
-        perim = wall_map.to_perimeter()
+        wall_map.init_known_walls(delta_theta=0.0)
 
+    perim = wall_map.to_perimeter()
     brain = Brain(perim, BRAIN_CFG, goal_x=END_X_CM, goal_y=END_Y_CM)
 
-    if wall_map is not None:
-        ekf = EKFLocalizer(
-            wall_map,
-            (START_X_CM, START_Y_CM, START_HEADING_RAD),
-            wheel_base_cm=BRAIN_CFG["WHEEL_BASE_CM"],
-            max_speed_cm_s=BRAIN_CFG["MAX_SPEED_CM_S"],
-        )
+    ekf = EKFLocalizer(
+        wall_map,
+        (START_X_CM, START_Y_CM, START_HEADING_RAD),
+        wheel_base_cm=BRAIN_CFG["WHEEL_BASE_CM"],
+        max_speed_cm_s=BRAIN_CFG["MAX_SPEED_CM_S"],
+    )
 
     print("=" * 72)
     print("DuckBot — Autonomous Navigation Controller")
-    if wall_map is not None:
-        if wall_map.corners:
-            print(f"  Mapped pool : {len(wall_map.corners)} corners "
-                  f"(phase: {wall_map.phase})")
-    else:
-        print(f"  Perimeter   : {PERIMETER_CM[2][0]} x {PERIMETER_CM[2][1]} cm")
+    if sweep_info:
+        print(f"  Orientation : Δθ={sweep_info['delta_theta_deg']}° "
+              f"({sweep_info['walls_seen']}/4 walls confirmed)")
     print(f"  Start pose  : ({START_X_CM}, {START_Y_CM})  "
           f"@{math.degrees(START_HEADING_RAD):.0f}°")
+    print(f"  End          : ({END_X_CM}, {END_Y_CM})")
     print(f"  Sonar       : TRIG=GPIO{SONAR_TRIG}  ECHO=GPIO{SONAR_ECHO}")
     print(f"  Motors      : LEFT=GPIO{LEFT_PIN}  RIGHT=GPIO{RIGHT_PIN}")
     print(f"  Loop rate   : {BRAIN_CFG['LOOP_HZ']} Hz")
@@ -134,64 +122,55 @@ def run_navigation(on_cycle=None):
             lt = now
 
             odom.update(ll, lr, dt)
-
-            if ekf is not None:
-                ekf.predict(ll, lr, dt)
+            ekf.predict(ll, lr, dt)
 
             d = sonar.distance_cm()
+            if d is not None:
+                ekf.correct(d)
 
-            if ekf is not None:
-                if d is not None:
-                    ekf.correct(d)
+            if ekf.should_reacquire():
+                print("\n EKF lost while idle — re-running sweep...")
+                try:
+                    sweeper = SonarSweep(
+                        drive, sonar,
+                        sweep_speed=MAPPER_SWEEP_SPEED,
+                        step_deg=MAPPER_SWEEP_DEG_STEP,
+                        sonar_samples=MAPPER_SONAR_SAMPLES,
+                        blind_zone_cm=MAPPER_BLIND_ZONE_CM,
+                    )
+                    result = sweeper.run(odom)
+                    sweep_info = wall_map.init_from_sweep(
+                        result["readings"],
+                        duck_x=START_X_CM,
+                        duck_y=START_Y_CM,
+                    )
+                    ekf.set_pose(START_X_CM, START_Y_CM, START_HEADING_RAD)
+                    ekf.lost_count = 0
+                    ekf.recent_innovations.clear()
+                    print(f" Re-acquired: Δθ={sweep_info['delta_theta_deg']}°")
+                except Exception as e:
+                    print(f" Re-acquire failed: {e}")
 
-                if ekf.should_reacquire():
-                    print("\n EKF lost — re-acquiring walls...")
-                    try:
-                        sweeper = SonarSweep(
-                            drive, sonar,
-                            sweep_speed=MAPPER_SWEEP_SPEED,
-                            step_deg=MAPPER_SWEEP_DEG_STEP,
-                            sonar_samples=MAPPER_SONAR_SAMPLES,
-                            blind_zone_cm=MAPPER_BLIND_ZONE_CM,
-                        )
-                        result = sweeper.run(odom)
-                        wall_map.init_from_minima(
-                            result["readings"],
-                            duck_x=result["duck_x"],
-                            duck_y=result["duck_y"],
-                        )
-                        ekf.set_pose(
-                            result["duck_x"],
-                            result["duck_y"],
-                            0.0,
-                        )
-                        ekf.lost_count = 0
-                        ekf.recent_innovations.clear()
-                        perim = wall_map.to_perimeter()
-                        brain.perimeter = perim
-                        print(f" Re-acquired: {len(wall_map.walls)} walls "
-                              f"@ ({result['duck_x']:.0f}, "
-                              f"{result['duck_y']:.0f})")
-                    except Exception as e:
-                        print(f" Re-acquire failed: {e}")
-
-                x, y, theta = ekf.get_pose()
-            else:
-                x, y, theta = odom.position()
+            x, y, theta = ekf.get_pose()
 
             ls, rs = brain.decide(d, x, y, theta, dt)
+
+            if ekf.needs_x_correction():
+                x_wall_normal = wall_map.walls[0].normal_angle
+                err = x_wall_normal - theta
+                err = math.atan2(math.sin(err), math.cos(err))
+                bias = math.copysign(0.05, err)
+                ls = min(1.0, max(-1.0, ls + bias * 0.3))
+                rs = min(1.0, max(-1.0, rs - bias * 0.3))
+
             drive.drive_speeds(ls, rs)
             ll, lr = ls, rs
 
             if on_cycle:
                 data = dict(
                     d=d, x=x, y=y, theta=theta, ls=ls, rs=rs,
-                    brain=brain, perim=perim,
+                    brain=brain, perim=perim, walls=wall_map.to_dict(),
                 )
-                if wall_map is not None:
-                    data["walls"] = wall_map.to_dict()
-                else:
-                    data["walls"] = None
                 on_cycle(data)
 
             now2 = time.time()
@@ -206,9 +185,6 @@ def run_navigation(on_cycle=None):
                 elif edge < BRAIN_CFG["PERIMETER_MARGIN_CM"]:
                     flag = " ~edge"
 
-                wphase = ""
-                if wall_map is not None:
-                    wphase = f" walls:{wall_map.phase}"
                 label = _state_label(brain)
                 print(
                     f"[{label:>14}] "
@@ -216,7 +192,7 @@ def run_navigation(on_cycle=None):
                     f"θ={math.degrees(theta):6.1f}° "
                     f"sonar={d_str}cm "
                     f"L={ls:+.2f} R={rs:+.2f}"
-                    f"{flag}{wphase}"
+                    f"{flag}"
                 )
 
             time.sleep(1.0 / BRAIN_CFG["LOOP_HZ"])

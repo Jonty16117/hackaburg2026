@@ -1,21 +1,32 @@
-"""Wall mapping: discovers, stores, and manages pool wall estimates.
+"""Wall mapping: orientation detection and fixed-wall management.
 
-Wall lifecycle:
-  INIT → sweep completes → REFINING (walls discovered, cov high)
-         → EKF refines walls → LOCKED (σ² < threshold OR obs >= min)
+Since pool dimensions and start/end positions are known in advance
+(config.py), walls are NOT discovered — they are at fixed known positions:
 
-Each wall is stored as a normalized line equation: A·x + B·y + C = 0
-where √(A²+B²) = 1 and C is the signed distance from origin.
+  left wall:   x = 0
+  right wall:  x = PERIMETER_WIDTH_CM
+  bottom wall: y = 0
+  top wall:    y = PERIMETER_HEIGHT_CM
+
+The sweep at boot only determines the ORIENTATION offset Δθ — the
+rotation between the duck's body-frame heading and the pool +x direction.
 """
 
 import math
+from navigation.config import (
+    PERIMETER_WIDTH_CM,
+    PERIMETER_HEIGHT_CM,
+    PERIMETER_CM,
+    START_X_CM,
+    START_Y_CM,
+    MAPPER_MIN_SPAN_DEG,
+)
 
 
 class Wall:
-    __slots__ = ("A", "B", "C", "normal_angle", "obs_count",
-                 "locked", "covariance", "first_point")
+    __slots__ = ("A", "B", "C", "normal_angle")
 
-    def __init__(self, A, B, C, normal_angle=None):
+    def __init__(self, A, B, C):
         mag = math.hypot(A, B)
         if mag < 1e-12:
             self.A = 0.0
@@ -26,18 +37,10 @@ class Wall:
             self.A = A / mag
             self.B = B / mag
             self.C = C / mag
-            self.normal_angle = (
-                normal_angle if normal_angle is not None
-                else math.atan2(self.B, self.A)
-            )
-        self.obs_count = 0
-        self.locked = False
-        self.covariance = 10000.0
-        self.first_point = None
+            self.normal_angle = math.atan2(self.B, self.A)
 
     def perpendicular_distance(self, x, y):
-        d = self.A * x + self.B * y + self.C
-        return abs(d)
+        return abs(self.A * x + self.B * y + self.C)
 
     def signed_distance(self, x, y):
         return self.A * x + self.B * y + self.C
@@ -47,144 +50,185 @@ class Wall:
         diff = math.atan2(math.sin(diff), math.cos(diff))
         return abs(diff) <= math.radians(half_cone_deg)
 
-    def refine(self, x, y, sonar_range):
-        delta = abs(self.signed_distance(x, y)) - sonar_range
-        nx = x + sonar_range * self.A
-        ny = y + sonar_range * self.B
-        cs = self.obs_count
-        alpha = 1.0 / (cs + 1) if cs > 0 else 1.0
-        self.obs_count += 1
-        self.C = (1.0 - alpha) * self.C + alpha * (-self.A * nx - self.B * ny)
-        if self.first_point is None:
-            self.first_point = (nx, ny)
-        self.covariance = max(
-            1.0,
-            self.covariance * (1.0 - alpha) + alpha * delta * delta,
-        )
-
-    def to_line_points(self, x_min, y_min, x_max, y_max):
-        if abs(self.B) > 1e-9:
-            y0 = y_min
-            x0 = -(self.B * y0 + self.C) / self.A
-            y1 = y_max
-            x1 = -(self.B * y1 + self.C) / self.A
-        else:
-            x0 = -(self.C) / self.A
-            y0 = y_min
-            x1 = x0
-            y1 = y_max
-        return (x0, y0, x1, y1)
-
     def to_dict(self):
         return {
             "A": round(self.A, 6),
             "B": round(self.B, 6),
             "C": round(self.C, 3),
             "normal": round(self.normal_angle, 4),
-            "obs_count": self.obs_count,
-            "locked": self.locked,
-            "covariance": round(self.covariance, 1),
+            "locked": True,
+            "obs_count": 0,
+            "covariance": 0.0,
         }
 
 
 class WallMap:
     def __init__(self):
         self.walls = []
-        self.corners = []
+        self.delta_theta = 0.0
+        self.n_walls_initially = 0
         self.phase = "INIT"
-        self._bounds = (0.0, 0.0, 1000.0, 200.0)
 
-    def init_from_minima(self, readings, duck_x=0.0, duck_y=0.0):
-        segments = self._segment_by_range(readings)
-        candidates = []
-        for seg_phi, seg_rng, span in segments:
-            if span >= math.radians(15):
-                candidates.append((seg_phi, seg_rng, span))
-        candidates.sort(key=lambda x: x[2], reverse=True)
-        candidates = candidates[:4]
+    def init_known_walls(self, delta_theta=0.0):
+        self.delta_theta = delta_theta
+        self.walls = [
+            Wall(1, 0, -PERIMETER_WIDTH_CM),   # right wall  x=1000, normal 0°
+            Wall(0, 1, -PERIMETER_HEIGHT_CM),  # top wall    y=200,  normal 90°
+            Wall(-1, 0, 0),                     # left wall   x=0,    normal 180°
+            Wall(0, -1, 0),                     # bottom wall y=0,    normal 270°
+        ]
+        self.phase = "LOCKED"
 
-        self.walls = []
-        for phi_est, r_est, _span in candidates:
-            nx = duck_x + r_est * math.cos(phi_est)
-            ny = duck_y + r_est * math.sin(phi_est)
-            A = math.cos(phi_est)
-            B = math.sin(phi_est)
-            C = -(A * nx + B * ny)
-            wall = Wall(A, B, C, normal_angle=phi_est)
-            wall.first_point = (nx, ny)
-            wall.obs_count = 1
-            self.walls.append(wall)
+    def init_from_sweep(self, readings, duck_x=START_X_CM, duck_y=START_Y_CM):
+        segments = self._segment_plateaus(readings)
+        delta, n_walls, warning = self._detect_orientation(
+            segments, duck_x, duck_y,
+        )
+        self.init_known_walls(delta_theta=delta)
+        self.n_walls_initially = n_walls
 
-        self._sort_walls()
-        self._compute_corners()
-        self.phase = "REFINING"
+        return {
+            "delta_theta_deg": round(math.degrees(delta), 1),
+            "walls_seen": n_walls,
+            "prefix": "WARNING!" if warning else "OK",
+            "warning": warning,
+        }
 
-    def _sort_walls(self):
-        self.walls.sort(key=lambda w: math.atan2(
-            math.sin(w.normal_angle), math.cos(w.normal_angle)
-        ))
-
-    def _segment_by_range(self, readings):
+    def _segment_plateaus(self, readings):
         n = len(readings)
-        valid_indices = []
-        for i in range(n):
-            if readings[i][1] is not None:
-                valid_indices.append(i)
-        if len(valid_indices) < 2:
+        valid = [(i, readings[i][0], readings[i][1])
+                 for i in range(n) if readings[i][1] is not None]
+        if len(valid) < 2:
             return []
 
         splits = []
-        for j in range(len(valid_indices)):
-            i1 = valid_indices[j]
-            i2 = valid_indices[(j + 1) % len(valid_indices)]
-            d1 = readings[i1][1]
-            d2 = readings[i2][1]
+        for j in range(len(valid)):
+            i1, phi1, r1 = valid[j]
+            i2, phi2, r2 = valid[(j + 1) % len(valid)]
             raw_gap = i2 - i1
             if raw_gap < 0:
                 raw_gap += n
-            if abs(d1 - d2) > 40 or raw_gap > 3:
+            if abs(r1 - r2) > 40 or raw_gap > 3:
                 splits.append(j + 1)
 
         if len(splits) <= 1:
-            phis = [readings[i][0] for i in valid_indices]
-            rngs = [readings[i][1] for i in valid_indices]
-            mid = self._circular_midpoint(phis)
+            phis = [v[1] for v in valid]
+            rngs = [v[2] for v in valid]
+            mid = self._circular_mean(phis)
             return [(mid, min(rngs), math.radians(360))]
 
         segments = []
         for s_idx in range(len(splits)):
-            start_split = splits[s_idx]
-            end_split = splits[(s_idx + 1) % len(splits)]
-            if end_split > start_split:
-                seg_indices = valid_indices[start_split:end_split]
+            start = splits[s_idx]
+            end = splits[(s_idx + 1) % len(splits)]
+            if end > start:
+                seg_data = valid[start:end]
             else:
-                seg_indices = (valid_indices[start_split:] +
-                              valid_indices[:end_split])
-            if len(seg_indices) < 2:
+                seg_data = valid[start:] + valid[:end]
+
+            if len(seg_data) < 2:
                 continue
 
-            phis = [readings[i][0] for i in seg_indices]
-            rngs = [readings[i][1] for i in seg_indices]
+            phis = [v[1] for v in seg_data]
+            rngs = [v[2] for v in seg_data]
+            span_deg = len(seg_data) * (360.0 / n)
+            if span_deg < MAPPER_MIN_SPAN_DEG:
+                continue
 
-            mid_phi = self._circular_midpoint(phis)
-            min_rng = min(rngs)
+            mid = self._circular_mean(phis)
+            min_r = min(rngs)
+            segments.append((mid, min_r, math.radians(span_deg)))
 
-            arc_deg = (len(seg_indices) * (360.0 / n))
-            span_rad = max(math.radians(arc_deg), math.radians(10))
-
-            if min_rng > 20:
-                segments.append((mid_phi, min_rng, span_rad))
-
-        return segments
+        segments.sort(key=lambda s: s[2], reverse=True)
+        return segments[:4]
 
     @staticmethod
-    def _circular_midpoint(angles):
-        cos_sum = 0.0
-        sin_sum = 0.0
-        for a in angles:
-            cos_sum += math.cos(a)
-            sin_sum += math.sin(a)
-        return math.atan2(sin_sum, cos_sum)
+    def _circular_mean(angles):
+        cos_s = sum(math.cos(a) for a in angles)
+        sin_s = sum(math.sin(a) for a in angles)
+        return math.atan2(sin_s, cos_s)
+
+    def _detect_orientation(self, segments, duck_x, duck_y):
+        expected_side = duck_x
+        expected_other_side = abs(PERIMETER_WIDTH_CM - duck_x)
+        expected_near = min(duck_y, PERIMETER_HEIGHT_CM - duck_y)
+        expected_far = max(duck_y, PERIMETER_HEIGHT_CM - duck_y)
+        tolerance = abs(expected_side - expected_other_side)
+        if expected_side == expected_other_side:
+            expected_side = max(duck_x, PERIMETER_WIDTH_CM - duck_x)
+        if tolerance < 50:
+            tolerance = 120
+
+        delta = 0.0
+        warning = None
+        n_seen = len(segments)
+
+        if n_seen == 0:
+            return 0.0, n_seen, "No wall plateaus detected — using Δθ=0"
+
+        segs = [(seg[0], seg[1]) for seg in segments]
+        normal_0, r0 = segs[0]
+        far_from_0 = None
+        for phi, rng in segs[1:]:
+            raw_diff = phi - normal_0
+            diff = abs(math.atan2(math.sin(raw_diff), math.cos(raw_diff)))
+            if 1.2 < diff < 1.95:
+                far_from_0 = (phi, rng)
+                break
+
+        if far_from_0 is not None:
+            phi_orth, r_orth = far_from_0
+            if r0 > r_orth:
+                x_candidate = normal_0
+                y_candidate = phi_orth
+            else:
+                x_candidate = phi_orth
+                y_candidate = normal_0
+        elif n_seen >= 2:
+            r0v, r1v = segs[0][1], segs[1][1]
+            if r0v > r1v:
+                x_candidate = segs[0][0]
+                y_candidate = segs[1][0]
+            else:
+                x_candidate = segs[1][0]
+                y_candidate = segs[0][0]
+        else:
+            x_candidate = segs[0][0]
+            y_candidate = segs[0][0]
+
+        x_best = x_candidate
+        for test_phi in [x_candidate, x_candidate + math.pi]:
+            test_phi = math.atan2(math.sin(test_phi), math.cos(test_phi))
+            if abs(test_phi) < abs(x_best):
+                x_best = test_phi
+
+        delta = x_best
+
+        y_best = y_candidate
+        target_y = delta + math.pi / 2
+        for test_phi in [y_candidate, y_candidate + math.pi]:
+            test_phi = math.atan2(math.sin(test_phi), math.cos(test_phi))
+            diff = abs(math.atan2(
+                math.sin(test_phi - target_y),
+                math.cos(test_phi - target_y),
+            ))
+            if diff < math.pi / 2:
+                y_best = test_phi
+                break
+
+        side_dist = expected_other_side
+        best_measured = None
+        for _, rng in segs:
+            if abs(rng - side_dist) < abs((best_measured or 0) - side_dist):
+                best_measured = rng
+        if best_measured is not None and abs(best_measured - side_dist) > tolerance:
+            warning = (
+                f"Expected side wall at ~{side_dist:.0f}cm, "
+                f"measured {best_measured:.0f}cm — duck may not be at "
+                f"({START_X_CM},{START_Y_CM})"
+            )
+
+        return delta, n_seen, warning
 
     def nearest_visible_wall(self, x, y, theta):
         best_idx = None
@@ -200,78 +244,20 @@ class WallMap:
             return None, None
         return best_idx, best_dist
 
-    def lock_wall(self, idx, cov_threshold=25.0, min_obs=3):
-        wall = self.walls[idx]
-        if wall.covariance < cov_threshold or wall.obs_count >= min_obs:
-            wall.locked = True
-        all_locked = all(w.locked for w in self.walls)
-        if all_locked and len(self.walls) >= 4:
-            self.phase = "LOCKED"
-        return wall.locked
-
-    def _compute_corners(self):
-        self.corners = []
-        n = len(self.walls)
-        if n < 2:
-            return
-        for i in range(n):
-            w1 = self.walls[i]
-            w2 = self.walls[(i + 1) % n]
-            det = w1.A * w2.B - w2.A * w1.B
-            if abs(det) < 1e-12:
-                continue
-            cx = (w2.B * (-w1.C) - w1.B * (-w2.C)) / det
-            cy = (w1.A * (-w2.C) - w2.A * (-w1.C)) / det
-            self.corners.append((cx, cy))
-
     def to_perimeter(self):
         from navigation.perimeter import Perimeter
-        if len(self.corners) >= 3:
-            return Perimeter(list(self.corners))
-        if len(self.walls) >= 3:
-            self._compute_bounds_from_walls()
-            return Perimeter(self._estimate_vertices())
-        if len(self.walls) >= 2:
-            self._compute_bounds_from_walls()
-            return Perimeter(self._estimate_vertices())
-        return Perimeter([(0, 0), (1000, 0), (1000, 200), (0, 200)])
-
-    def _compute_bounds_from_walls(self):
-        xs = []
-        ys = []
-        for w in self.walls:
-            points = w.to_line_points(0, 0, 10000, 10000)
-            xs.extend([points[0], points[2]])
-            ys.extend([points[1], points[3]])
-        if xs and ys:
-            self._bounds = (min(xs) - 50, min(ys) - 50,
-                           max(xs) + 50, max(ys) + 50)
-
-    def _estimate_vertices(self):
-        x_min, y_min, x_max, y_max = self._bounds
-        return [(x_min, y_min), (x_max, y_min),
-                (x_max, y_max), (x_min, y_max)]
-
-    def add_wall(self, normal_angle, perpendicular_distance, duck_pose):
-        nx = duck_pose[0] + perpendicular_distance * math.cos(normal_angle)
-        ny = duck_pose[1] + perpendicular_distance * math.sin(normal_angle)
-        A = math.cos(normal_angle)
-        B = math.sin(normal_angle)
-        C = -(A * nx + B * ny)
-        wall = Wall(A, B, C, normal_angle=normal_angle)
-        wall.first_point = (nx, ny)
-        wall.obs_count = 1
-        self.walls.append(wall)
-        self._sort_walls()
-        self._compute_corners()
-        return len(self.walls) - 1
+        return Perimeter(PERIMETER_CM)
 
     def to_dict(self):
         return {
             "walls": [w.to_dict() for w in self.walls],
             "corners": [
-                (round(c[0], 1), round(c[1], 1)) for c in self.corners
+                (0, 0),
+                (PERIMETER_WIDTH_CM, 0),
+                (PERIMETER_WIDTH_CM, PERIMETER_HEIGHT_CM),
+                (0, PERIMETER_HEIGHT_CM),
             ],
             "phase": self.phase,
-            "walls_locked": sum(1 for w in self.walls if w.locked),
+            "walls_locked": 4,
+            "delta_theta_deg": round(math.degrees(self.delta_theta), 1),
         }
