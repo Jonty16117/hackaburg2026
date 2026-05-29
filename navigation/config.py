@@ -78,4 +78,6 @@ EKF_PROCESS_NOISE_THETA = 0.05
 EKF_SONAR_NOISE_CM2 = 4.0
 EKF_INNOVATION_GATE_CM = 80.0
 EKF_LOST_COUNT_MAX = 20
-EKF_X_CORRECTION_INTERVAL_S = 30.0  # bias toward side wall if no x-correction in this time
+EKF_X_CORRECTION_INTERVAL_S = 30.0
+EKF_LOCK_COVARIANCE = 25.0
+EKF_LOCK_MIN_OBS = 3  # bias toward side wall if no x-correction in this time

@@ -156,6 +156,9 @@ class EKFLocalizer:
 
         self.lost_count = 0
 
+        wall.refine(self.x, self.y, sonar_cm)
+        self.wall_map.lock_wall(wall_idx)
+
     def should_reacquire(self):
         idle_time = time.time() - self.last_move_time
         if idle_time < 8.0:
