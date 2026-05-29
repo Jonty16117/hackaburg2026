@@ -22,6 +22,7 @@ from navigation.perimeter import Perimeter
 from navigation.brain import Brain, State, _AvoidPhase
 from navigation.wall_map import WallMap
 from navigation.ekf_localizer import EKFLocalizer
+from navigation.utils import heading_error
 
 
 AVOID_PHASE_LABELS = {
@@ -115,6 +116,10 @@ def run_navigation(on_cycle=None):
     lt = time.time()
     last_log = [lt]
 
+    _x_correction_active = False
+    _x_correction_start = 0.0
+    _x_correction_timeout = 6.0
+
     try:
         while True:
             now = time.time()
@@ -153,18 +158,38 @@ def run_navigation(on_cycle=None):
 
             x, y, theta = ekf.get_pose()
 
-            ls, rs = brain.decide(d, x, y, theta, dt)
+            if _x_correction_active:
+                xc_elapsed = now - _x_correction_start
+                if xc_elapsed > _x_correction_timeout:
+                    _x_correction_active = False
+                elif ekf.x_corrections > _x_corrections_before:
+                    _x_correction_active = False
+                else:
+                    x_wall = wall_map.walls[0]
+                    err = heading_error(x_wall.normal_angle, theta)
+                    if abs(err) > 0.26:
+                        td = 1 if err > 0 else -1
+                        ts = BRAIN_CFG["TURN_SPEED"]
+                        ls, rs = -ts * td, ts * td
+                    else:
+                        ls, rs = BRAIN_CFG["EXPLORE_SPEED"], BRAIN_CFG["EXPLORE_SPEED"]
+                    drive.drive_speeds(ls, rs)
+                    ll, lr = ls, rs
+            else:
+                ls, rs = brain.decide(d, x, y, theta, dt)
 
-            if ekf.needs_x_correction():
-                x_wall_normal = wall_map.walls[0].normal_angle
-                err = x_wall_normal - theta
-                err = math.atan2(math.sin(err), math.cos(err))
-                bias = math.copysign(0.05, err)
-                ls = min(1.0, max(-1.0, ls + bias * 0.3))
-                rs = min(1.0, max(-1.0, rs - bias * 0.3))
+                if ekf.needs_x_correction():
+                    no_obstacle = d is None or d > BRAIN_CFG["OBSTACLE_THRESHOLD_CM"]
+                    not_avoiding = brain.state != State.AVOID
+                    if no_obstacle and not_avoiding:
+                        _x_correction_active = True
+                        _x_correction_start = now
+                        _x_corrections_before = ekf.x_corrections
+                        print("\n  → aligning to side wall for x-correction...")
 
-            drive.drive_speeds(ls, rs)
-            ll, lr = ls, rs
+            if not _x_correction_active:
+                drive.drive_speeds(ls, rs)
+                ll, lr = ls, rs
 
             if on_cycle:
                 data = dict(

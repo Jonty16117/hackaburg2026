@@ -73,7 +73,7 @@ MAPPER_VALIDATION_TOLERANCE_CM = 120  # how far off expected distances can the s
 MAPPER_MIN_SPAN_DEG = 30              # minimum angular span for a wall plateau
 
 # --- EKF Localizer ---
-EKF_PROCESS_NOISE_XY = 3.0
+EKF_PROCESS_NOISE_XY = 10.0
 EKF_PROCESS_NOISE_THETA = 0.05
 EKF_SONAR_NOISE_CM2 = 4.0
 EKF_SONAR_CONE_HALF_DEG = 37.5
