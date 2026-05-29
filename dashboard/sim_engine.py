@@ -287,9 +287,9 @@ class SimEngine:
                     sr = self.sonar_right or 9999
                     if abs(sl - sr) < 20:
                         goal_th = math.atan2(self.end["y"] - self.y, self.end["x"] - self.x)
-                        self._avoid_turn_dir = 1 if heading_error(goal_th, self.theta) >= 0 else -1
+                        self._avoid_turn_dir = -1 if heading_error(goal_th, self.theta) >= 0 else 1
                     else:
-                        self._avoid_turn_dir = 1 if sr > sl else -1
+                        self._avoid_turn_dir = -1 if sr > sl else 1
                 else:
                     return -self.REVERSE_SPD, -self.REVERSE_SPD
             if self.avoid_state == "turn":
