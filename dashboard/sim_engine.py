@@ -308,13 +308,15 @@ class SimEngine:
                 self._mline_hit_y = self.y
                 self._mline_hit_dist = math.hypot(self.x - self.end["x"], self.y - self.end["y"])
                 return -self.REVERSE_SPD, -self.REVERSE_SPD
-            return -math.copysign(1, perr), math.copysign(1, perr)
+            turn = clamp(perr * 2, -self.TURN_SP, self.TURN_SP)
+            return -turn, turn
 
         if self.perim_cooldown > 0 and self.avoid_state == "none":
             cperr = heading_error(self.escape_heading, self.theta)
             if abs(cperr) < 0.08:
                 return self.max_speed, self.max_speed
-            return -math.copysign(1, cperr), math.copysign(1, cperr)
+            turn = clamp(cperr * 2, -self.TURN_SP, self.TURN_SP)
+            return -turn, turn
 
         # Avoid FSM: REVERSE -> TURN -> DRIVE
         if self.avoid_state != "none":
