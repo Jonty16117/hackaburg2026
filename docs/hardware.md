@@ -161,3 +161,96 @@ The robot starts at center pointing along the long axis. Odometry tracks positio
 | **AVOID** | Sonar < 50cm | Reverse → scan L/R → turn toward clearer side |
 | **TURN_TO_CENTER** | Near perimeter edge | Turn toward centroid → drive forward until clear |
 | **STUCK** | 3× AVOID in 10s | Reverse + tight turn escape for 2s |
+
+---
+
+## Running on Raspberry Pi
+
+### Quick start
+
+```bash
+# Clone and install
+git clone <repo> && cd wallmapper
+pip install -e .
+
+# ESC calibration (required first time — props off!)
+python scripts/run.py --mode calibrate
+
+# Autonomous navigation
+python scripts/run.py --mode auto
+
+# Manual keyboard control
+python scripts/run.py --mode manual
+
+# Or run the controller directly
+python -m navigation.controller
+```
+
+### Software stack
+
+```
+                     RPi.GPIO (BCM mode)
+     GPIO 12 ──► Left ESC (PWM 50 Hz, 1000–2000 µs)
+     GPIO 13 ──► Right ESC (PWM 50 Hz, 1000–2000 µs)
+     GPIO 23 ──► RCWL-1655 TRIG
+     GPIO 24 ◄── RCWL-1655 ECHO (via voltage divider)
+           │
+     ┌─────┴──────────────────┐
+     │ motors/esc.py          │  Motor class: GPIO.PWM per pin
+     │ motors/drive.py        │  DuckDrive: (ls, rs) → PWM pulses
+     │ sensors/sonar.py       │  Sonar.distance_cm()
+     │ navigation/controller  │  Main loop at 20 Hz
+     │ navigation/brain.py    │  FSM: decide(sonar, x, y, θ) → (ls, rs)
+     │ navigation/odometry.py │  Differential-drive kinematics
+     │ navigation/ekf_localizer│  Sonar-corrected pose estimation
+     └────────────────────────┘
+```
+
+### Key files
+
+| File | Purpose |
+|------|---------|
+| `motors/esc.py` | `Motor` class — single GPIO PWM pin (50 Hz, 1000–2000 µs) |
+| `motors/drive.py` | `DuckDrive` — dual-motor interface, `drive_speeds(ls, rs)` maps `[-1, 1]` to PWM. Right motor inverted (`right_invert = True`) for mirrored props |
+| `sensors/sonar.py` | `Sonar.distance_cm()` — ultrasonic ranging via GPIO trigger/echo |
+| `navigation/config.py` | All pins, geometry, and FSM tuning parameters |
+| `navigation/controller.py` | Hardware loop: sonar → EKF → Brain → DuckDrive, 20 Hz |
+| `navigation/brain.py` | FSM states: EXPLORE / AVOID / TURN_TO_CENTER / STUCK |
+| `navigation/odometry.py` | Dead-reckoning from motor commands: `v = (vl+vr)/2`, `ω = (vr-vl)/wheel_base` |
+| `navigation/ekf_localizer.py` | EKF predict (odometry) + correct (sonar-to-wall distance) |
+| `navigation/sonar_sweep.py` | Boot-time 360° scan by rotating in place |
+| `scripts/run.py` | CLI entry point: manual, auto, calibrate modes |
+
+### Signal chain
+
+```
+Sonar ──► EKF.correct() ──► Brain.decide() ──► DuckDrive.drive_speeds()
+                                                   │
+                                          pulse = 1500 + speed × 500
+                                                   │
+                                           Motor.set_pulse(us)
+                                                   │
+                                           GPIO.PWM.ChangeDutyCycle()
+```
+
+The normalized speed interface (`float` in `[-1, 1]`) is shared by the real robot and the simulation engine (`dashboard/sim_engine.py`), making the sim behaviorally equivalent.
+
+### ESC calibration
+
+Run once with **propellers removed** before first use:
+
+```bash
+python scripts/run.py --mode calibrate
+```
+
+This walks through the standard ESC calibration sequence:
+1. Sends **max pulse** (2000 µs) — connect battery, wait for beeps
+2. Sends **min pulse** (1000 µs) — wait for confirmation beeps
+3. Returns to **neutral** (1500 µs) — ready to drive
+
+### Important notes
+
+- **BEC backfeed**: Do NOT connect ESC BEC 5V output to Pi while Pi is USB-powered (ground loop risk)
+- **Right motor inverted**: `right_invert = True` in `motors/drive.py:14` compensates for mirrored CW/CCW propellers
+- **Test on bench first**: Prop the duck up so thrusters can't move it
+- **Dashboard** (`python -m dashboard.server`) can also run the navigation loop when `RPi.GPIO` is importable — it auto-detects hardware via `HAS_HARDWARE` flag
