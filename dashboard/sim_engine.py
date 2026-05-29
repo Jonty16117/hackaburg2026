@@ -58,6 +58,7 @@ class SimEngine:
         self.left_speed = 0.0
         self.right_speed = 0.0
         self._blocked_count = 0
+        self.scenario_label = ""
 
         # --- sensors ---
         self.sonar_front = None
@@ -550,7 +551,6 @@ class SimEngine:
                 self._mline_hit_y = self.y
                 self._mline_hit_dist = math.hypot(self.x - self.end["x"], self.y - self.end["y"])
                 self.pos_history = []
-                self._blocked_count = 0
         else:
             self._blocked_count = 0
 
@@ -602,6 +602,7 @@ class SimEngine:
             "trail": list(self.trail),
             "config": self._build_config(),
             "walls": wall_state,
+            "scenario_label": self.scenario_label,
         }
 
     def _build_config(self):

@@ -73,6 +73,7 @@ button:disabled{opacity:0.4;cursor:default}
     <text id="end-label" x="900" y="86" fill="#42a5f5" font-size="11" text-anchor="middle" font-weight="bold">E</text>
   </g>
   <text id="brain-label" x="500" y="12" fill="#4fc3f7" font-size="11" text-anchor="middle" font-weight="bold" opacity="0"></text>
+  <text id="scenario-label" x="500" y="-4" fill="#ffcc00" font-size="14" text-anchor="middle" font-weight="bold" opacity="0"></text>
 </svg>
 
 <div id="panel">
@@ -149,7 +150,7 @@ button:disabled{opacity:0.4;cursor:default}
       elTrail = $('trail'), elDuck = $('duck'),
       elBF = $('beam-front'), elBL = $('beam-left'), elBR = $('beam-right'),
       elBFP = $('beam-front-pt'), elBLP = $('beam-left-pt'), elBRP = $('beam-right-pt'),
-      elBrain = $('brain-label'), elObs = $('obstacles'),
+      elBrain = $('brain-label'), elScenario = $('scenario-label'), elObs = $('obstacles'),
       slF = $('s-front'), slL = $('s-left'), slR = $('s-right'), slSpd = $('s-speed');
 
   var np = function(){ return { x: duck.x+14*Math.cos(duck.th), y: duck.y+14*Math.sin(duck.th) }; };
@@ -290,6 +291,13 @@ button:disabled{opacity:0.4;cursor:default}
     // brain label
     elBrain.setAttribute('opacity', s.autopilot ? '1' : '0');
     elBrain.textContent = s.brain_state || (s.autopilot ? 'GO' : '');
+    // scenario label
+    if (s.scenario_label) {
+      elScenario.setAttribute('opacity', '1');
+      elScenario.textContent = '🛫 ' + s.scenario_label;
+    } else {
+      elScenario.setAttribute('opacity', '0');
+    }
     // sync sliders
     slF.value = sens[0]; $('v-front').textContent = sens[0];
     slL.value = sens[1]; $('v-left').textContent = sens[1];

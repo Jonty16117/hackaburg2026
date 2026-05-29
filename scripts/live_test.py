@@ -40,6 +40,18 @@ SCENARIOS = [
      [(567, 172, 5), (577, 122, 5), (593, 153, 13), (618, 155, 10),
       (635, 86, 14), (619, 117, 8), (719, 17, 13), (719, 44, 7),
       (719, 77, 8), (719, 112, 6), (719, 130, 9)], 500),
+    ("10. Maze easy",
+     [(250, 70, 10), (250, 90, 10), (250, 110, 10), (250, 130, 10), (250, 150, 10), (250, 170, 10), (250, 190, 10),
+      (450, 10, 10), (450, 30, 10), (450, 50, 10), (450, 70, 10), (450, 90, 10), (450, 110, 10), (450, 130, 10),
+      (650, 70, 10), (650, 90, 10), (650, 110, 10), (650, 130, 10), (650, 150, 10), (650, 170, 10), (650, 190, 10)], 30),
+    ("11. Maze standard",
+     [(250, 60, 10), (250, 80, 10), (250, 100, 10), (250, 120, 10), (250, 140, 10), (250, 160, 10), (250, 180, 10), (250, 200, 10),
+      (450, 0, 10), (450, 20, 10), (450, 40, 10), (450, 60, 10), (450, 80, 10), (450, 100, 10), (450, 120, 10), (450, 140, 10),
+      (650, 60, 10), (650, 80, 10), (650, 100, 10), (650, 120, 10), (650, 140, 10), (650, 160, 10), (650, 180, 10), (650, 200, 10)], 30),
+    ("12. Maze hard",
+     [(250, 50, 10), (250, 70, 10), (250, 90, 10), (250, 110, 10), (250, 130, 10), (250, 150, 10), (250, 170, 10), (250, 190, 10),
+      (450, 10, 10), (450, 30, 10), (450, 50, 10), (450, 70, 10), (450, 90, 10), (450, 110, 10), (450, 130, 10), (450, 150, 10),
+      (650, 50, 10), (650, 70, 10), (650, 90, 10), (650, 110, 10), (650, 130, 10), (650, 150, 10), (650, 170, 10), (650, 190, 10)], 30),
 ]
 
 MAX_STEPS = 6000
@@ -64,12 +76,21 @@ class LiveClient:
             pass
         return None
 
+    def pause_continuous(self):
+        self._api("POST", "/api/sim/toggle")
+
+    def resume_continuous(self):
+        self._api("POST", "/api/sim/toggle")
+
+    def set_label(self, label):
+        self._api("PUT", "/api/config", {"scenario_label": label})
+
     def apply(self, start_x, obstacles):
         """Reset and load a scenario via load_scenario to restart frame counter."""
         self._api("POST", "/api/duck/reset")
         self._api("DELETE", "/api/obstacles")
         self._api("PUT", "/api/sim/goal",
-                  {"start": {"x": start_x, "y": 100}, "end": {"x": 900, "y": 100}})
+                  {"start": {"x": start_x, "y": 100}, "end": {"x": 960, "y": 100}})
         for ox, oy, r in obstacles:
             self._api("POST", "/api/obstacles", {"x": ox, "y": oy, "r": r})
         self._api("POST", "/api/autopilot/start")
@@ -93,7 +114,9 @@ class LiveClient:
 
 
 def run_scenario(client, desc, obstacles, start_x, fast=False):
+    client.pause_continuous()
     client.apply(start_x, obstacles)
+    client.set_label(desc)
     s0 = client.state()
     if s0 is None:
         print(f"  {desc:>24s}  ERROR   server unreachable")
@@ -110,6 +133,7 @@ def run_scenario(client, desc, obstacles, start_x, fast=False):
                 d_frames = s["frame"] - start_frame
                 t = d_frames * DT
                 print(f"  {desc:>24s}  ARRIVED  {d_frames:>5d}f  {t:>6.1f}s  x={s['x']:.0f}")
+                client.resume_continuous()
                 return True, d_frames, t
         if not fast:
             time.sleep(DT * 0.8)
@@ -118,6 +142,7 @@ def run_scenario(client, desc, obstacles, start_x, fast=False):
     d_frames = MAX_STEPS
     print(f"  {desc:>24s}  FAILED   {d_frames:>5d}f  timeout  x={s['x']:.0f}" if s else
           f"  {desc:>24s}  ERROR    state unavailable")
+    client.resume_continuous()
     return False, d_frames, d_frames * DT
 
 
