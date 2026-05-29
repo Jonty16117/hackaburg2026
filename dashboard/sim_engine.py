@@ -96,7 +96,6 @@ class SimEngine:
         self.frame = 0
         self.sim_time = 0.0
         self.trail = []   # last 40 pos
-        self.debug_buf = []  # last 500 frames
         self._start_time = time.time()
 
     # ------------------------------------------------------------------
@@ -497,25 +496,6 @@ class SimEngine:
                 self.left_speed = 0.0
                 self.right_speed = 0.0
 
-        # Debug logging
-        if self.autopilot_on:
-            near = min(self.x, self.PW - self.x, self.y, self.PH - self.y)
-            self.debug_buf.append({
-                "t": f"{time.time() - self._start_time:.2f}",
-                "x": f"{self.x:.1f}",   "y": f"{self.y:.1f}",
-                "th": f"{math.degrees(self.theta):.1f}",
-                "ls": f"{self.left_speed:.2f}",  "rs": f"{self.right_speed:.2f}",
-                "f": f"{self.sonar_front if self.sonar_front else 0:.0f}",
-                "l": f"{self.sonar_left if self.sonar_left else 0:.0f}",
-                "r": f"{self.sonar_right if self.sonar_right else 0:.0f}",
-                "near": f"{near:.0f}",
-                "perimEscaping": self.perim_escaping,
-                "avoidState": self.avoid_state,
-                "perimCooldown": f"{self.perim_cooldown:.2f}",
-            })
-            if len(self.debug_buf) > 500:
-                self.debug_buf = self.debug_buf[-500:]
-
         self.frame += 1
 
     def _build_state(self):
@@ -578,10 +558,6 @@ class SimEngine:
     def get_state(self):
         with self._lock:
             return self._build_state()
-
-    def get_debug(self, limit=50):
-        with self._lock:
-            return {"frames": self.debug_buf[-limit:]}
 
     def get_config(self):
         with self._lock:
@@ -772,6 +748,5 @@ class SimEngine:
             self.right_speed = 0.0
             self._sonar_override = {"front": None, "left": None, "right": None}
             self.trail.clear()
-            self.debug_buf.clear()
             self.frame = 0
             return self._build_state()
