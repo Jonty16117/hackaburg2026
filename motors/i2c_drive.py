@@ -33,7 +33,7 @@ class I2CDrive:
                 return PWM_MIN
             return round(PWM_MIN + speed * (PWM_MAX - PWM_MIN))
 
-        payload = bytes([self._register]) + list(struct.pack(">HH", pwm(left_speed), pwm(right_speed)))
+        payload = bytes([self._register]) + struct.pack(">HH", pwm(left_speed), pwm(right_speed))
         if self._fd is None:
             return
         try:
