@@ -10,8 +10,8 @@ Usage:
 import math
 import time
 
+from motors.i2c_drive import I2C_ADDR, I2C_REG, I2C_BUS
 from navigation.config import (
-    I2C_ADDR, I2C_REG, I2C_BUS,
     SONAR_TRIG, SONAR_ECHO,
     PERIMETER_CM, START_X_CM, START_Y_CM, START_HEADING_RAD,
     END_X_CM, END_Y_CM, BRAIN_CFG, MAPPER_TOGGLE,

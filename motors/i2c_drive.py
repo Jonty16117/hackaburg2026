@@ -3,14 +3,17 @@ import fcntl
 import os
 import logging
 
-from navigation.config import I2C_BUS, I2C_ADDR, I2C_REG, PWM_MIN, PWM_MAX
-
 log = logging.getLogger(__name__)
+
+I2C_BUS = 1
+I2C_ADDR = 0x08
+I2C_REG = 0x00
+PWM_MIN = 1000
+PWM_MAX = 1500
 
 I2C_SLAVE = 0x0703
 I2C_TIMEOUT = 0x0706
 I2C_RETRIES = 0x0701
-I2C_FUNCS = 0x0705
 
 
 class I2CDrive:
