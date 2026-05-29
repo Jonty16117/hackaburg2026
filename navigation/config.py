@@ -1,8 +1,5 @@
 """DuckBot navigation configuration — tune these values for your setup."""
 
-LEFT_PIN = 12
-RIGHT_PIN = 13
-
 PERIMETER_WIDTH_CM = 1000
 PERIMETER_HEIGHT_CM = 200
 PERIMETER_CM = [

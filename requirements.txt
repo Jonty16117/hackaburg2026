@@ -2,5 +2,4 @@ fastapi
 uvicorn
 aiohttp
 RPi.GPIO
-smbus2
 Pillow
