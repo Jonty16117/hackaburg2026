@@ -1,12 +1,24 @@
-"""360-degree sonar sweep to discover pool walls at boot time.
+"""360-degree sonar sweep to discover pool orientation at boot time.
 
-The duck rotates in place, logging sonar range vs heading at fixed intervals.
-Range minima correspond to perpendicular distances to walls — used to
-initialize the WallMap without prior knowledge of pool dimensions.
+The duck rotates in place using timed motor steps, logging sonar range
+vs body-frame heading at fixed intervals. The sweep determines the
+rotation offset Δθ between the duck's body heading and pool +x.
 """
 
 import math
 import time
+
+from navigation.config import (
+    BRAIN_CFG,
+    MAPPER_SWEEP_SPEED,
+    MAPPER_SWEEP_DEG_STEP,
+    MAPPER_SONAR_SAMPLES,
+    MAPPER_BLIND_ZONE_CM,
+    MAPPER_BLIND_REVERSE_CM,
+)
+
+MAX_SPEED_CM_S = BRAIN_CFG["MAX_SPEED_CM_S"]
+WHEEL_BASE_CM = BRAIN_CFG["WHEEL_BASE_CM"]
 
 
 def median_filter(readings, window=3):
@@ -27,104 +39,124 @@ def median_filter(readings, window=3):
     return result
 
 
-def _shortest_angle_diff(target, current):
-    d = target - current
-    return math.atan2(math.sin(d), math.cos(d))
-
-
 class SonarSweep:
-    def __init__(self, drive, sonar, sweep_speed=0.3, step_deg=10,
-                 sonar_samples=3, blind_zone_cm=20):
+    def __init__(self, drive, sonar, sweep_speed=None, step_deg=None,
+                 sonar_samples=None, blind_zone_cm=None):
         self.drive = drive
         self.sonar = sonar
-        self.sweep_speed = sweep_speed
-        self.step_deg = step_deg
-        self.sonar_samples = sonar_samples
-        self.blind_zone_cm = blind_zone_cm
+        self.sweep_speed = sweep_speed if sweep_speed is not None else MAPPER_SWEEP_SPEED
+        self.step_deg = step_deg if step_deg is not None else MAPPER_SWEEP_DEG_STEP
+        self.sonar_samples = sonar_samples if sonar_samples is not None else MAPPER_SONAR_SAMPLES
+        self.blind_zone_cm = blind_zone_cm if blind_zone_cm is not None else MAPPER_BLIND_ZONE_CM
 
         self.readings = []
         self.blind_headings = []
-        self.start_x = None
-        self.start_y = None
-        self.duck_pose_x = 0.0
-        self.duck_pose_y = 0.0
-        self.duck_pose_theta = 0.0
+        self._current_heading_deg = 0.0
 
     def run(self, odom):
-        self.start_x, self.start_y, _ = odom.position()
-        self.duck_pose_x = self.start_x
-        self.duck_pose_y = self.start_y
-        self.duck_pose_theta = 0.0
-
         self._sweep_full(odom)
 
-        if len(self.blind_headings) > 0:
-            self._escape_blind(odom)
-            self._sweep_blind_arcs(odom)
+        if self.blind_headings:
+            self._escape_blind_from_headings(odom)
+            self._sweep_full(odom, only_blind=True)
 
-        self.duck_pose_theta = 0.0
-        total_rot = self._compute_total_rotation()
-        _, _, start_th = odom.x, odom.y, 0.0
+        self._return_to_start(odom)
 
         return {
             "readings": self.readings,
-            "duck_x": odom.x if hasattr(odom, 'x') else self.start_x,
-            "duck_y": odom.y if hasattr(odom, 'y') else self.start_y,
-            "total_rotation_deg": total_rot,
+            "duck_x": odom.x,
+            "duck_y": odom.y,
         }
 
-    def _sweep_full(self, odom):
-        self.readings = []
-        self.blind_headings = []
+    def _angular_speed_rad_s(self):
+        return (self.sweep_speed * MAX_SPEED_CM_S * 2.0) / WHEEL_BASE_CM
+
+    def _rotation_time_ms(self):
+        rad_per_step = math.radians(self.step_deg)
+        angular_spd = self._angular_speed_rad_s()
+        if angular_spd < 1e-9:
+            return 200
+        return max(80, int((rad_per_step / angular_spd) * 1000 * 1.15))
+
+    def _sweep_full(self, odom, only_blind=False):
+        if not only_blind:
+            self.readings = []
+            self.blind_headings = []
+
+        rot_ms = self._rotation_time_ms()
 
         for deg in range(0, 360, self.step_deg):
-            self._rotate_to(deg, odom)
+            if only_blind:
+                near_blind = any(
+                    abs((deg - bd + 180) % 360 - 180) < 30
+                    for bd in self.blind_headings
+                )
+                if not near_blind:
+                    continue
+
+            self._rotate_step(rot_ms, odom)
             rng = self._read_sonar_median()
             phi = math.radians(deg)
-            self.readings.append((phi, rng))
-            if rng is None:
-                self.blind_headings.append(deg)
+            self._current_heading_deg = deg
 
-        self._rotate_to(0, odom)
-
-    def _escape_blind(self, odom):
-        self.drive.drive_speeds(
-            -self.sweep_speed * 0.8,
-            -self.sweep_speed * 0.8,
-        )
-        time.sleep(1.5)
-        self.drive.drive_speeds(0.0, 0.0)
-        time.sleep(0.5)
-
-    def _sweep_blind_arcs(self, odom):
-        _, _, th = odom.position() if hasattr(odom, 'position') else (0, 0, 0)
-        for blind_deg in self.blind_headings:
-            for offset in range(-20, 21, self.step_deg):
-                deg = (blind_deg + offset) % 360
-                self._rotate_to(deg, odom)
-                rng = self._read_sonar_median()
-                phi = math.radians(deg)
+            if only_blind:
                 idx = deg // self.step_deg
                 if idx < len(self.readings):
                     self.readings[idx] = (phi, rng)
+            else:
+                self.readings.append((phi, rng))
+                if rng is None:
+                    self.blind_headings.append(deg)
 
-    def _rotate_to(self, target_deg, odom):
-        target_rad = math.radians(target_deg)
-        tolerance = math.radians(3)
+    def _rotate_step(self, duration_ms, odom):
+        turn_dir = 1
+        left = -self.sweep_speed * turn_dir
+        right = self.sweep_speed * turn_dir
 
-        x, y, th = odom.position() if hasattr(odom, 'position') else (0, 0, 0)
-        while True:
-            x, y, th = odom.position() if hasattr(odom, 'position') else (0, 0, 0)
-            err = _shortest_angle_diff(target_rad, th)
-            if abs(err) < tolerance:
-                break
-            turn_dir = 1.0 if err > 0 else -1.0
-            spd = min(self.sweep_speed, abs(err) * 0.3 + 0.1)
-            self.drive.drive_speeds(-spd * turn_dir, spd * turn_dir)
-            time.sleep(0.05)
+        self.drive.drive_speeds(left, right)
+        t0 = time.time()
+        elapsed = 0.0
+        while elapsed < (duration_ms / 1000.0):
+            time.sleep(0.01)
+            elapsed = time.time() - t0
 
         self.drive.drive_speeds(0.0, 0.0)
-        time.sleep(0.1)
+        time.sleep(0.08)
+
+        dt = elapsed
+        odom.update(left, right, dt)
+
+    def _escape_blind_from_headings(self, odom):
+        avg_phi = 0.0
+        cos_s = sum(math.cos(math.radians(bd)) for bd in self.blind_headings)
+        sin_s = sum(math.sin(math.radians(bd)) for bd in self.blind_headings)
+        avg_phi = math.atan2(sin_s, cos_s)
+
+        reverse_heading = avg_phi + math.pi
+        reverse_heading = math.atan2(
+            math.sin(reverse_heading), math.cos(reverse_heading)
+        )
+
+        reverse_speed = self.sweep_speed * 0.8
+        reverse_time = MAPPER_BLIND_REVERSE_CM / (reverse_speed * MAX_SPEED_CM_S)
+        reverse_time = max(0.5, min(2.0, reverse_time))
+
+        self.drive.drive_speeds(-reverse_speed, -reverse_speed)
+        t0 = time.time()
+        while (time.time() - t0) < reverse_time:
+            time.sleep(0.01)
+
+        self.drive.drive_speeds(0.0, 0.0)
+        time.sleep(0.3)
+
+        odom.update(-reverse_speed, -reverse_speed, reverse_time)
+
+    def _return_to_start(self, odom):
+        rem = (360 - self._current_heading_deg) % 360
+        if rem < 3:
+            return
+        rot_ms = int((rem / self.step_deg) * self._rotation_time_ms())
+        self._rotate_step(rot_ms, odom)
 
     def _read_sonar_median(self):
         vals = []
@@ -137,9 +169,6 @@ class SonarSweep:
             vals.sort()
             return vals[len(vals) // 2]
         return None
-
-    def _compute_total_rotation(self):
-        return 360
 
 
 def simulate_sweep(sonar_fn, duck_x=500, duck_y=100, step_deg=10):

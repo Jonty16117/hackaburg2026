@@ -1,23 +1,23 @@
 """Extended Kalman Filter for continuous duck pose tracking.
 
-3-state EKF: [x, y, theta] — duck pose relative to known walls.
-Walls are treated as external fixed landmarks (refined separately in WallMap).
+3-state EKF: [x, y, theta] — duck pose relative to known fixed walls.
+Walls are fixed constants (loaded from config) so no refinement needed.
 
 Prediction: differential-drive odometry (motor speed commands).
 Correction: sonar perpendicular distance matches predicted distance to wall.
 """
 
 import math
+import time
 from collections import deque
 from navigation.utils import normalize_angle
 from navigation.config import (
     EKF_PROCESS_NOISE_XY,
     EKF_PROCESS_NOISE_THETA,
     EKF_SONAR_NOISE_CM2,
-    EKF_LOCK_COVARIANCE,
-    EKF_LOCK_MIN_OBS,
     EKF_INNOVATION_GATE_CM,
-    EKF_SONAR_CONE_HALF_DEG,
+    EKF_LOST_COUNT_MAX,
+    EKF_X_CORRECTION_INTERVAL_S,
 )
 
 
@@ -42,9 +42,14 @@ class EKFLocalizer:
         self.R = EKF_SONAR_NOISE_CM2
 
         self.lost_count = 0
+        self._no_wall_count = 0
         self.total_corrections = 0
-        self.last_innovation = 0.0
+        self.x_corrections = 0
+        self.last_x_correction_time = time.time()
+        self.last_position = (float(initial_pose[0]), float(initial_pose[1]))
+        self.last_move_time = time.time()
         self.recent_innovations = deque(maxlen=10)
+        self._skip_correct = False
 
     def get_pose(self):
         return self.x, self.y, self.theta
@@ -53,6 +58,12 @@ class EKFLocalizer:
         self.x = float(x)
         self.y = float(y)
         self.theta = float(theta)
+
+    def needs_x_correction(self):
+        if self.total_corrections < 5:
+            return False
+        return (time.time() - self.last_x_correction_time
+                > EKF_X_CORRECTION_INTERVAL_S)
 
     def predict(self, left_speed, right_speed, dt):
         vl = left_speed * self.max_speed
@@ -82,12 +93,21 @@ class EKFLocalizer:
         self.cov[1][1] += self.Q_xy * dt2
         self.cov[2][2] += self.Q_theta * dt2
 
+        dx = self.x - self.last_position[0]
+        dy = self.y - self.last_position[1]
+        if abs(dx) > 2 or abs(dy) > 2:
+            self.last_move_time = time.time()
+            self.last_position = (self.x, self.y)
+
     def correct(self, sonar_cm):
+        if sonar_cm is None:
+            return
+
         wall_idx, predicted = self.wall_map.nearest_visible_wall(
             self.x, self.y, self.theta,
         )
         if wall_idx is None:
-            self.lost_count += 1
+            self._no_wall_count += 1
             return
 
         wall = self.wall_map.walls[wall_idx]
@@ -96,7 +116,6 @@ class EKFLocalizer:
         innovation = sonar_cm - predicted
 
         self.recent_innovations.append(innovation)
-        self.last_innovation = innovation
 
         if abs(innovation) > EKF_INNOVATION_GATE_CM:
             self.lost_count += 1
@@ -129,28 +148,24 @@ class EKFLocalizer:
         ]
         self.cov = _mat_mul_3x3(I_KH, self.cov)
 
-        if wall.obs_count < 100:
-            wall.refine(self.x, self.y, sonar_cm)
-
-        self.wall_map.lock_wall(
-            wall_idx,
-            cov_threshold=EKF_LOCK_COVARIANCE,
-            min_obs=EKF_LOCK_MIN_OBS,
-        )
-
         self.total_corrections += 1
+        self._no_wall_count = 0
+        if abs(wall.A) > 0.9:
+            self.x_corrections += 1
+            self.last_x_correction_time = time.time()
+
         self.lost_count = 0
 
+        wall.refine(self.x, self.y, sonar_cm)
+        self.wall_map.lock_wall(wall_idx)
+
     def should_reacquire(self):
-        threshold = EKF_INNOVATION_GATE_CM * 2
-        if len(self.recent_innovations) >= 6:
-            large = sum(
-                1 for inv in self.recent_innovations
-                if abs(inv) > threshold
-            )
-            if large >= 3:
-                return True
-        return self.lost_count > 10
+        idle_time = time.time() - self.last_move_time
+        if idle_time < 8.0:
+            return False
+        if self._no_wall_count > 200:
+            return True
+        return self.lost_count > EKF_LOST_COUNT_MAX
 
     def get_covariance_diag(self):
         return self.cov[0][0], self.cov[1][1], self.cov[2][2]

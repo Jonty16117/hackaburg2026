@@ -215,9 +215,6 @@ async def get_config():
 @app.get("/live")
 async def get_live():
     state = _read_state()
-    if _mode == "sim":
-        debug = _engine.get_debug(50)
-        return {"latest": state, "frame_count": len(debug["frames"]), "buffer": debug["frames"]}
     return {"latest": state, "frame_count": 0, "buffer": []}
 
 
@@ -370,13 +367,6 @@ def api_get_state():
     return _read_state()
 
 
-@app.get("/api/state/history")
-def api_get_state_history(limit: int = 50):
-    if _mode == "real":
-        return {"frames": []}
-    return _engine.get_debug(limit)
-
-
 # =========================================================================
 # REST API — Duck Control
 # =========================================================================
@@ -495,13 +485,6 @@ def api_sim_toggle():
 def api_set_goal(data: dict):
     _ensure_sim()
     return _engine.set_goal(data.get("start"), data.get("end"))
-
-
-@app.get("/api/sim/debug")
-def api_get_debug():
-    if _mode == "real":
-        return {"frames": []}
-    return _engine.get_debug(500)
 
 
 # =========================================================================

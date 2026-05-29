@@ -71,8 +71,9 @@ class SimEngine:
         self.end = {"x": 900, "y": 100}
 
         # --- wall mapping ---
-        self.wall_map = None
-        self.wall_map_visible = False
+        self.wall_map = WallMap()
+        self.wall_map.init_known_walls(delta_theta=0.0)
+        self.wall_map_visible = True
         self.sweep_requested = False
         self.sweep_readings = None
 
@@ -102,7 +103,6 @@ class SimEngine:
         self.frame = 0
         self.sim_time = 0.0
         self.trail = []   # last 40 pos
-        self.debug_buf = []  # last 500 frames
         self._start_time = time.time()
 
     # ------------------------------------------------------------------
@@ -511,6 +511,16 @@ class SimEngine:
                 val = self._raycast(n["x"], n["y"], self.theta + math.pi / 4)
                 self.sonar_right = val if val is not None else 9999
 
+            if self.wall_map_visible and self.wall_map is not None:
+                sf = self.sonar_front
+                if sf is not None and 20 < sf < 900:
+                    idx, _ = self.wall_map.nearest_visible_wall(
+                        self.x, self.y, self.theta)
+                    if idx is not None:
+                        wall = self.wall_map.walls[idx]
+                        wall.refine(self.x, self.y, sf)
+                        self.wall_map.lock_wall(idx)
+
             ls, rs = self._autopilot(dt)
             self.left_speed = ls
             self.right_speed = rs
@@ -543,25 +553,6 @@ class SimEngine:
                 self.arrived = True
                 self.left_speed = 0.0
                 self.right_speed = 0.0
-
-        # Debug logging
-        if self.autopilot_on:
-            near = min(self.x, self.PW - self.x, self.y, self.PH - self.y)
-            self.debug_buf.append({
-                "t": f"{time.time() - self._start_time:.2f}",
-                "x": f"{self.x:.1f}",   "y": f"{self.y:.1f}",
-                "th": f"{math.degrees(self.theta):.1f}",
-                "ls": f"{self.left_speed:.2f}",  "rs": f"{self.right_speed:.2f}",
-                "f": f"{self.sonar_front if self.sonar_front else 0:.0f}",
-                "l": f"{self.sonar_left if self.sonar_left else 0:.0f}",
-                "r": f"{self.sonar_right if self.sonar_right else 0:.0f}",
-                "near": f"{near:.0f}",
-                "perimEscaping": self.perim_escaping,
-                "avoidState": self.avoid_state,
-                "perimCooldown": f"{self.perim_cooldown:.2f}",
-            })
-            if len(self.debug_buf) > 500:
-                self.debug_buf = self.debug_buf[-500:]
 
         self.frame += 1
 
@@ -625,10 +616,6 @@ class SimEngine:
     def get_state(self):
         with self._lock:
             return self._build_state()
-
-    def get_debug(self, limit=50):
-        with self._lock:
-            return {"frames": self.debug_buf[-limit:]}
 
     def get_config(self):
         with self._lock:
@@ -738,7 +725,7 @@ class SimEngine:
         )
 
         wm = WallMap()
-        wm.init_from_minima(readings, duck_x=self.x, duck_y=self.y)
+        wm.init_from_sweep(readings, duck_x=self.x, duck_y=self.y)
         self.wall_map = wm
         self.sweep_readings = readings
         self.sweep_requested = False
@@ -819,6 +806,5 @@ class SimEngine:
             self.right_speed = 0.0
             self._sonar_override = {"front": None, "left": None, "right": None}
             self.trail.clear()
-            self.debug_buf.clear()
             self.frame = 0
             return self._build_state()

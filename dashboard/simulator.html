@@ -119,7 +119,6 @@ button:disabled{opacity:0.4;cursor:default}
   <div class="btn-row">
     <button id="btn-reset" class="btn-neutral">Reset</button>
     <button id="btn-clear-obs" class="btn-neutral">Clear Obstacles</button>
-    <button id="btn-dump" class="btn-neutral" style="background:#1a3a5c;color:#4fc3f7;margin-top:4px">Dump Debug</button>
   </div>
   <div class="btn-row" style="margin-top:4px">
     <button id="btn-sweep" class="btn-neutral" style="background:#1b5e20;color:#81c784">Map Walls</button>
@@ -477,15 +476,6 @@ button:disabled{opacity:0.4;cursor:default}
   };
   $('btn-clear-obs').onclick = function(){
     fetch('/api/obstacles', {method:'DELETE'}).catch(function(){});
-  };
-  $('btn-dump').onclick = function(){
-    fetch('/api/sim/debug').then(function(r){ return r.json(); }).then(function(data){
-      var blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
-      var a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = 'duckbot-debug-' + new Date().toISOString().replace(/:/g,'-').slice(0,19) + '.json';
-      a.click();
-    }).catch(function(){});
   };
   $('btn-sweep').onclick = function(){
     fetch('/api/walls/sweep', {method:'POST'}).catch(function(){});
