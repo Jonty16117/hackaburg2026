@@ -1,9 +1,12 @@
 import struct
+import fcntl
 import logging
 
 from navigation.config import I2C_BUS, I2C_ADDR, I2C_REG, PWM_MIN, PWM_MAX
 
 log = logging.getLogger(__name__)
+
+I2C_TIMEOUT = 0x0706
 
 
 class I2CDrive:
@@ -14,6 +17,7 @@ class I2CDrive:
         try:
             import smbus2
             self._bus = smbus2.SMBus(bus)
+            fcntl.ioctl(self._bus.fd, I2C_TIMEOUT, 2)
         except Exception as e:
             log.warning("I2C unavailable (%s) — mock mode", e)
 
