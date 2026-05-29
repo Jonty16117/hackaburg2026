@@ -1,0 +1,13 @@
+.git/
+.venv/
+__pycache__/
+.pytest_cache/
+node_modules/
+graphify-out/
+*.pyc
+*.pyo
+.DS_Store
+dist/
+*.egg-info/
+.env
+venv/

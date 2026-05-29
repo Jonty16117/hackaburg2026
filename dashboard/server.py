@@ -82,6 +82,7 @@ _real_state = {
     "frame": 0, "obstacles": [], "start": {"x": 500, "y": 100},
     "end": {"x": 900, "y": 100},
     "config": {},
+    "walls": None,
 }
 _real_lock = threading.Lock()
 
@@ -143,6 +144,7 @@ def _nav_loop():
                 "avoid_phase": ap,
                 "inside": perim.is_inside(data["x"], data["y"]),
                 "edge_cm": round(perim.distance_to_edge(data["x"], data["y"]), 1),
+                "walls": data.get("walls"),
             })
 
     run_navigation(on_cycle=on_cycle)
@@ -321,6 +323,9 @@ _COMMANDS = {
     "clear_obstacles": _ws_clear_obs, "set_goal": _ws_set_goal,
     "sim_step": _ws_sim_step, "sim_toggle": _ws_sim_toggle,
     "set_config": _ws_set_config,
+    "walls_sweep": lambda ws, d: _engine.request_sweep(),
+    "walls_hide": lambda ws, d: _engine.hide_walls(),
+    "walls_show": lambda ws, d: _engine.set_walls_visible(True),
 }
 
 
@@ -555,6 +560,38 @@ def api_apply_scenario(name: str):
     if s is None:
         raise HTTPException(404, f"Scenario '{name}' not found")
     return _engine.load_scenario(s)
+
+
+# =========================================================================
+# REST API — Wall Mapping
+# =========================================================================
+
+@app.get("/api/walls")
+def api_get_walls():
+    if _mode == "sim":
+        return _engine.get_wall_state() or {"walls": None}
+    else:
+        with _real_lock:
+            return _real_state.get("walls") or {"walls": None}
+
+
+@app.post("/api/walls/sweep")
+def api_sweep_walls():
+    _ensure_sim()
+    return _engine.request_sweep()
+
+
+@app.delete("/api/walls")
+def api_hide_walls():
+    _ensure_sim()
+    return _engine.hide_walls()
+
+
+@app.put("/api/walls/visible")
+def api_set_walls_visible(data: dict):
+    _ensure_sim()
+    visible = data.get("visible", True)
+    return _engine.set_walls_visible(visible)
 
 
 # =========================================================================
