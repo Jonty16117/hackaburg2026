@@ -15,7 +15,6 @@ class State(Enum):
 
 
 class _AvoidPhase(Enum):
-    REVERSE = auto()
     TURN_AND_SENSE = auto()
     FACE_OPENING = auto()
     REACTIVE_DRIVE = auto()
@@ -31,7 +30,7 @@ class Brain:
         self.state = State.EXPLORE
         self._state_start = _time.time()
 
-        self._avoid_phase = _AvoidPhase.REVERSE
+        self._avoid_phase = _AvoidPhase.TURN_AND_SENSE
         self._avoid_phase_start = 0.0
         self._avoid_cooldown = 0.0
         self._avoid_history = []
@@ -57,7 +56,7 @@ class Brain:
         self.state = new_state
         self._state_start = _time.time()
         if new_state == State.AVOID:
-            self._avoid_phase = _AvoidPhase.REVERSE
+            self._avoid_phase = _AvoidPhase.TURN_AND_SENSE
             self._avoid_phase_start = _time.time()
             self._best_heading = None
             self._max_sonar_seen = 0.0
@@ -126,15 +125,7 @@ class Brain:
         elapsed = self.avoid_phase_timer
         now = _time.time()
 
-        # ── Phase 1: REVERSE ──
-        if self._avoid_phase == _AvoidPhase.REVERSE:
-            if elapsed >= self.cfg["AVOID_REVERSE_TIME"]:
-                self._avoid_phase = _AvoidPhase.TURN_AND_SENSE
-                self._avoid_phase_start = now
-            return (-self.cfg["AVOID_REVERSE_SPEED"],
-                    -self.cfg["AVOID_REVERSE_SPEED"])
-
-        # ── Phase 2: TURN_AND_SENSE ──
+        # ── Phase 1: TURN_AND_SENSE ──
         if self._avoid_phase == _AvoidPhase.TURN_AND_SENSE:
             if sonar_cm is not None and sonar_cm > self._max_sonar_seen:
                 self._max_sonar_seen = sonar_cm
@@ -197,10 +188,8 @@ class Brain:
         kp = self.cfg["AVOID_REACTIVE_KP"]
         left = fwd + kp * error
         right = fwd - kp * error
-        left = max(-self.cfg["AVOID_REVERSE_SPEED"],
-                   min(self.cfg["AVOID_REACTIVE_FWD_SPEED"] * 2, left))
-        right = max(-self.cfg["AVOID_REVERSE_SPEED"],
-                    min(self.cfg["AVOID_REACTIVE_FWD_SPEED"] * 2, right))
+        left = max(0, min(self.cfg["AVOID_REACTIVE_FWD_SPEED"] * 2, left))
+        right = max(0, min(self.cfg["AVOID_REACTIVE_FWD_SPEED"] * 2, right))
         return (left, right)
 
     def _handle_turn_to_center(self, x, y, theta):

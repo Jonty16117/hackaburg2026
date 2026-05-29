@@ -11,7 +11,8 @@ import math
 import time
 
 from navigation.config import (
-    LEFT_PIN, RIGHT_PIN, SONAR_TRIG, SONAR_ECHO,
+    I2C_ADDR, I2C_REG, I2C_BUS,
+    SONAR_TRIG, SONAR_ECHO,
     PERIMETER_CM, START_X_CM, START_Y_CM, START_HEADING_RAD,
     END_X_CM, END_Y_CM, BRAIN_CFG, MAPPER_TOGGLE,
     MAPPER_SWEEP_SPEED, MAPPER_SWEEP_DEG_STEP, MAPPER_SONAR_SAMPLES,
@@ -26,7 +27,6 @@ from navigation.utils import heading_error
 
 
 AVOID_PHASE_LABELS = {
-    _AvoidPhase.REVERSE:         "AVOID:REV",
     _AvoidPhase.TURN_AND_SENSE:  "AVOID:SCAN",
     _AvoidPhase.FACE_OPENING:    "AVOID:FACE",
     _AvoidPhase.REACTIVE_DRIVE:  "AVOID:DRIVE",
@@ -41,14 +41,14 @@ def _state_label(brain):
 
 def run_navigation(on_cycle=None):
     import RPi.GPIO as GPIO
-    from motors.drive import DuckDrive
+    from motors.i2c_drive import I2CDrive
     from sensors.sonar import Sonar
     from navigation.sonar_sweep import SonarSweep
 
     GPIO.setmode(GPIO.BCM)
     GPIO.setwarnings(False)
 
-    drive = DuckDrive(LEFT_PIN, RIGHT_PIN)
+    drive = I2CDrive()
     sonar = Sonar(SONAR_TRIG, SONAR_ECHO)
     odom = Odometry(START_X_CM, START_Y_CM, START_HEADING_RAD,
                     BRAIN_CFG["WHEEL_BASE_CM"], BRAIN_CFG["MAX_SPEED_CM_S"])
@@ -107,7 +107,7 @@ def run_navigation(on_cycle=None):
           f"@{math.degrees(START_HEADING_RAD):.0f}°")
     print(f"  End          : ({END_X_CM}, {END_Y_CM})")
     print(f"  Sonar       : TRIG=GPIO{SONAR_TRIG}  ECHO=GPIO{SONAR_ECHO}")
-    print(f"  Motors      : LEFT=GPIO{LEFT_PIN}  RIGHT=GPIO{RIGHT_PIN}")
+    print(f"  Motors      : I2C addr=0x{I2C_ADDR:02X}  reg=0x{I2C_REG:02X}  bus={I2C_BUS}")
     print(f"  Loop rate   : {BRAIN_CFG['LOOP_HZ']} Hz")
     print("  Press Ctrl+C to stop.")
     print("=" * 72)
