@@ -26,7 +26,6 @@ input[type=text]{padding:4px 6px;border:1px solid #1a3a5c;background:#0d1b2a;col
 .btn-start{background:#1b5e20;color:#81c784}
 .btn-stop{background:#4a1a1a;color:#ef9a9a}
 .btn-neutral{background:#1a3a5c;color:#ccc}
-
 .telem{font-size:12px;width:100%}
 .telem td{padding:2px 6px}
 .telem td:first-child{color:#90a4ae;text-align:right;white-space:nowrap}
@@ -118,49 +117,21 @@ button:disabled{opacity:0.4;cursor:default}
 
 <script>
 (function() {
-  // --- config (mirrors navigation/config.py) ---
-  var PW = 1000, PH = 200,
-      DUCK_R = 15,
-      OBST_TH = 25, MARGIN = 30,
-      TURN_SP = 0.5, REVERSE_SPD = 0.5,
-      MAX_SPD = 100, WB = 30, HDG_TOL = 0.02,
-      AVOID_REVERSE_S = 0.5, AVOID_TURN_S = 0.5, AVOID_COOLDOWN_S = 0.3,
-      STUCK_DIST_CM = 8, STUCK_WINDOW_S = 1.5,
-      ARRIVAL = 20,
-      startX = 500, startY = 100, endX = 900, endY = 100;
-
-  // --- state ---
-  var mode = 'sim',
-      duck = { x: startX, y: startY, th: 0, ls: 0, rs: 0 },
-      sens = [20, 20, 20],
-      debugBuf = [],
-      debugLimit = 500,
-      obstacles = [],
-      autopilot = false,
-      arrived = false,
-      trail = [],
-      dragging = null,
-      maxSpeed = 0.6,
-      ap = {
-        avoidState: 'none',
-        avoidTimer: 0,
-        avoidTurnDir: null,
-        posHistory: [],
-        perimEscaping: false,
-        escapeHeading: 0,
-        perimCooldown: 0
-      };
-
   // --- helpers ---
   var $ = function(id){ return document.getElementById(id); };
-  var clamp = function(v,l,h){ return v<l?l:v>h?h:v; };
   var deg = function(r){ return (r*180/Math.PI).toFixed(1); };
-  var np = function(){ return { x: duck.x+14*Math.cos(duck.th), y: duck.y+14*Math.sin(duck.th) }; };
-  var svgPoint = function(e){
-    var pt = svm.createSVGPoint();
-    pt.x = e.clientX; pt.y = e.clientY;
-    return pt.matrixTransform(svm.getScreenCTM().inverse());
-  };
+  var clamp = function(v,l,h){ return v<l?l:v>h?h:v; };
+
+  // --- state (received from server) ---
+  var duck = { x: 500, y: 100, th: 0, ls: 0, rs: 0 };
+  var sens = [20, 20, 20];
+  var trail = [];
+  var obstacles = [];
+  var arrived = false;
+  var pf = 1000, ph = 200, duckR = 15;
+  var startX = 500, startY = 100, endX = 900, endY = 100;
+  var mode = 'sim', dragging = null;
+  var wsConnected = false;
 
   // --- DOM refs ---
   var svm = $('map'),
@@ -170,47 +141,12 @@ button:disabled{opacity:0.4;cursor:default}
       elBrain = $('brain-label'), elObs = $('obstacles'),
       slF = $('s-front'), slL = $('s-left'), slR = $('s-right'), slSpd = $('s-speed');
 
-  // --- physics (matches odometry.py) ---
-  function obstacleAt(x, y) {
-    for (var i = 0; i < obstacles.length; i++) {
-      var o = obstacles[i];
-      if (Math.hypot(x - o.x, y - o.y) < DUCK_R + o.r) return true;
-    }
-    return false;
-  }
-
-  function step(dt) {
-    var vl = duck.ls * MAX_SPD, vr = duck.rs * MAX_SPD;
-    var v = (vl+vr)/2, w = (vr-vl)/WB;
-    var nx = duck.x + v * Math.cos(duck.th) * dt;
-    var ny = duck.y + v * Math.sin(duck.th) * dt;
-    nx = clamp(nx, DUCK_R, PW - DUCK_R);
-    ny = clamp(ny, DUCK_R, PH - DUCK_R);
-    if (!obstacleAt(nx, ny)) { duck.x = nx; duck.y = ny; }
-    duck.th += w * dt;
-    duck.th = Math.atan2(Math.sin(duck.th), Math.cos(duck.th));
-  }
-
-  // --- raycast (line + circle intersection) ---
-  function ray(ox, oy, ang) {
-    var best = 9999, dx = Math.cos(ang), dy = Math.sin(ang);
-    function hit(x3,y3,x4,y4) {
-      var d = dx*(y3-y4) - dy*(x3-x4);
-      if (Math.abs(d) < 1e-9) return;
-      var t = ((ox-x3)*(y3-y4) - (oy-y3)*(x3-x4)) / d;
-      var u = -((dx*(oy-y3) - dy*(ox-x3))) / d;
-      if (t>=0 && u>=0 && u<=1) { var dist = Math.hypot(ox+dx*t-ox, oy+dy*t-oy); if (dist<best) best=dist; }
-    }
-    hit(0,0,PW,0); hit(PW,0,PW,PH); hit(PW,PH,0,PH); hit(0,PH,0,0);
-    for (var i=0; i<obstacles.length; i++) {
-      var o = obstacles[i], fx=ox-o.x, fy=oy-o.y;
-      var a=dx*dx+dy*dy, b=2*(fx*dx+fy*dy), c=fx*fx+fy*fy-o.r*o.r, disc=b*b-4*a*c;
-      if (disc<0) continue;
-      var t1=(-b-Math.sqrt(disc))/(2*a), t2=(-b+Math.sqrt(disc))/(2*a);
-      if (t1>=0&&t1<best) best=t1; else if (t2>=0&&t2<best) best=t2;
-    }
-    return best<9999 ? best : null;
-  }
+  var np = function(){ return { x: duck.x+14*Math.cos(duck.th), y: duck.y+14*Math.sin(duck.th) }; };
+  var svgPoint = function(e){
+    var pt = svm.createSVGPoint();
+    pt.x = e.clientX; pt.y = e.clientY;
+    return pt.matrixTransform(svm.getScreenCTM().inverse());
+  };
 
   // --- render ---
   function render() {
@@ -218,7 +154,7 @@ button:disabled{opacity:0.4;cursor:default}
     elDuck.setAttribute('transform', 'translate('+duck.x+','+duck.y+') rotate('+deg(duck.th)+')');
     $('duck-ring').setAttribute('cx', duck.x);
     $('duck-ring').setAttribute('cy', duck.y);
-    $('duck-ring').setAttribute('r', DUCK_R);
+    $('duck-ring').setAttribute('r', duckR);
     if (arrived) {
       var pulse = Math.sin(performance.now() / 400) * 0.5 + 0.5;
       var rv = Math.floor(255 * (1 - pulse)), gv = Math.floor(100 + 155 * pulse);
@@ -250,10 +186,9 @@ button:disabled{opacity:0.4;cursor:default}
   }
 
   function renderTelemetry() {
-    var inside = duck.x>=1 && duck.x<=PW-1 && duck.y>=1 && duck.y<=PH-1;
-    var edges = [duck.x, PW-duck.x, duck.y, PH-duck.y];
-    var stateLabel = arrived ? 'ARRIVED' : (!autopilot ? 'IDLE'
-      : (ap.perimEscaping ? 'PERIM' : (ap.avoidState !== 'none' ? ap.avoidState.toUpperCase() : 'GO'))));
+    var inside = duck.x>=1 && duck.x<=pf-1 && duck.y>=1 && duck.y<=ph-1;
+    var edges = [duck.x, pf-duck.x, duck.y, ph-duck.y];
+    var stateLabel = arrived ? 'ARRIVED' : 'LIVE';
     $('t-state').textContent = stateLabel;
     $('t-heading').innerHTML = deg(duck.th)+'&deg;';
     $('t-pos').textContent = '('+duck.x.toFixed(0)+', '+duck.y.toFixed(0)+')';
@@ -264,183 +199,88 @@ button:disabled{opacity:0.4;cursor:default}
     $('t-obstacles').textContent = obstacles.length;
   }
 
-  // --- auto-pilot (phased REVERSE→TURN→COOLDOWN avoid, goal-seeking, position-based stuck detection) ---
-  function autoPilot(dt) {
-    var distToEnd = Math.hypot(duck.x - endX, duck.y - endY);
-    if (distToEnd < ARRIVAL) { arrived = true; return [0, 0]; }
-    if (arrived) arrived = false;
-
-    var goalTh = Math.atan2(endY - duck.y, endX - duck.x);
-    var goalErr = ((goalTh - duck.th + Math.PI) % (2 * Math.PI)) - Math.PI;
-    var f = sens[0], l = sens[1], r = sens[2];
-    var obsDist = OBST_TH + DUCK_R;
-
-    var now = performance.now() / 1000;
-    if (!ap.perimEscaping) {
-      ap.posHistory.push({x: duck.x, y: duck.y, t: now});
-      var tCutoff = now - STUCK_WINDOW_S;
-      ap.posHistory = ap.posHistory.filter(function(p) { return p.t > tCutoff; });
-      var posStuck = false;
-      if (ap.posHistory.length >= 2) {
-        var p0 = ap.posHistory[0], pn = ap.posHistory[ap.posHistory.length - 1];
-        if (pn.t - p0.t >= STUCK_WINDOW_S && Math.hypot(pn.x - p0.x, pn.y - p0.y) < STUCK_DIST_CM) {
-          posStuck = true;
-        }
-      }
-
-      if (posStuck) {
-        ap.avoidState = 'reverse'; ap.avoidTimer = 0;
-        ap.avoidTurnDir = 'left';
-        return [-REVERSE_SPD, -REVERSE_SPD];
-      }
-    }
-
-    var near = Math.min(duck.x, PW - duck.x, duck.y, PH - duck.y);
-    if (near < MARGIN && !ap.perimEscaping && ap.perimCooldown <= 0) {
-      var dx = 0, dy = 0;
-      if (duck.x < MARGIN) dx = MARGIN - duck.x;
-      if (PW - duck.x < MARGIN) dx -= (duck.x - (PW - MARGIN));
-      if (duck.y < MARGIN) dy = MARGIN - duck.y;
-      if (PH - duck.y < MARGIN) dy -= (duck.y - (PH - MARGIN));
-      ap.escapeHeading = Math.atan2(dy, dx);
-      ap.perimEscaping = true;
-      ap.avoidState = 'none'; ap.avoidTimer = 0;
-      ap.posHistory = [];
-    }
-    if (near > MARGIN * 2 && ap.perimEscaping) {
-      ap.perimEscaping = false;
-      ap.perimCooldown = 0.5;
-    }
-    if (ap.perimCooldown > 0) ap.perimCooldown -= dt;
-
-    if (ap.perimEscaping) {
-      var perr = ((ap.escapeHeading - duck.th + Math.PI) % (2 * Math.PI)) - Math.PI;
-      if (Math.abs(perr) < 0.08) return [maxSpeed, maxSpeed];
-      return [-Math.sign(perr), Math.sign(perr)];
-    }
-
-    if (ap.perimCooldown > 0) {
-      var cperr = ((ap.escapeHeading - duck.th + Math.PI) % (2 * Math.PI)) - Math.PI;
-      if (Math.abs(cperr) < 0.08) return [maxSpeed, maxSpeed];
-      return [-Math.sign(cperr), Math.sign(cperr)];
-    }
-
-    if (ap.avoidState !== 'none') {
-      ap.avoidTimer += dt;
-
-      if (ap.avoidState === 'reverse') {
-        if (ap.avoidTimer >= AVOID_REVERSE_S) {
-          ap.avoidState = 'turn'; ap.avoidTimer = 0;
-        }
-        return [-REVERSE_SPD, -REVERSE_SPD];
-      }
-
-      if (ap.avoidState === 'turn') {
-        if (ap.avoidTimer >= AVOID_TURN_S) {
-          ap.avoidState = 'cooldown'; ap.avoidTimer = 0;
-        }
-        return ap.avoidTurnDir === 'left'
-          ? [TURN_SP, -TURN_SP] : [-TURN_SP, TURN_SP];
-      }
-
-      if (ap.avoidState === 'cooldown') {
-        if (ap.avoidTimer >= AVOID_COOLDOWN_S) {
-          ap.avoidState = 'none'; ap.avoidTimer = 0;
-        }
-      }
-    }
-
-    if (ap.avoidState === 'none' && f > 0 && f < obsDist) {
-      ap.avoidState = 'reverse'; ap.avoidTimer = 0;
-      ap.avoidTurnDir = l > r ? 'left' : 'right';
-      return [-REVERSE_SPD, -REVERSE_SPD];
-    }
-
-    if (Math.abs(goalErr) < HDG_TOL) return [maxSpeed, maxSpeed];
-
-    var turnDir = Math.sign(goalErr);
-    if (Math.abs(goalErr) > 0.3) return [-TURN_SP * turnDir, TURN_SP * turnDir];
-    var ratio = Math.abs(goalErr) / 0.3;
-    var innerSpeed = maxSpeed * (1 - ratio * 0.7);
-    return goalErr > 0 ? [innerSpeed, maxSpeed] : [maxSpeed, innerSpeed];
+  function updateFromServer(s) {
+    duck.x = s.x_cm || duck.x;
+    duck.y = s.y_cm || duck.y;
+    duck.th = s.theta_rad || duck.th;
+    duck.ls = s.left_speed || 0;
+    duck.rs = s.right_speed || 0;
+    sens[0] = s.sonar_front || 20;
+    sens[1] = s.sonar_left || 20;
+    sens[2] = s.sonar_right || 20;
+    arrived = s.arrived || false;
+    pf = (s.config && s.config.PW) || 1000;
+    ph = (s.config && s.config.PH) || 200;
+    duckR = (s.config && s.config.DUCK_R) || 15;
+    if (s.start) { startX = s.start.x; startY = s.start.y; }
+    if (s.end) { endX = s.end.x; endY = s.end.y; }
+    obstacles = s.obstacles || [];
+    if (s.trail) trail = s.trail;
+    // markers
+    $('start-pt').setAttribute('cx', startX);
+    $('start-pt').setAttribute('cy', startY);
+    $('start-label').setAttribute('x', startX);
+    $('start-label').setAttribute('y', startY - 14);
+    $('end-pt').setAttribute('cx', endX);
+    $('end-pt').setAttribute('cy', endY);
+    $('end-label').setAttribute('x', endX);
+    $('end-label').setAttribute('y', endY - 14);
+    // brain label
+    elBrain.setAttribute('opacity', s.autopilot ? '1' : '0');
+    elBrain.textContent = s.brain_state || (s.autopilot ? 'GO' : '');
+    // sync sliders
+    slF.value = sens[0]; $('v-front').textContent = sens[0];
+    slL.value = sens[1]; $('v-left').textContent = sens[1];
+    slR.value = sens[2]; $('v-right').textContent = sens[2];
   }
 
-  function setDrive(ls,rs){ if (mode==='sim') { arrived = false; duck.ls=clamp(ls,-1,1); duck.rs=clamp(rs,-1,1); } }
-
-  function resetAll() {
-    duck.x = startX; duck.y = startY; duck.th = 0; duck.ls = 0; duck.rs = 0;
-    arrived = false;
-    sens = [20, 20, 20]; trail = [];
-    ap = {
-      avoidState: 'none', avoidTimer: 0, avoidTurnDir: null,
-      posHistory: [], perimEscaping: false, escapeHeading: 0, perimCooldown: 0
-    };
-    syncSliders();
-  }
-
-  function syncSliders() {
-    slF.value=sens[0]; $('v-front').textContent=sens[0];
-    slL.value=sens[1]; $('v-left').textContent=sens[1];
-    slR.value=sens[2]; $('v-right').textContent=sens[2];
-  }
-
-  // --- main loop ---
-  var lastT = 0;
-  function loop(t) {
-    var dt = lastT ? Math.min((t-lastT)/1000, 0.1) : 0.016; lastT = t;
-    if (autopilot && mode !== 'real') {
-      var n = np();
-      sens[0] = ray(n.x, n.y, duck.th) || 9999;
-      sens[1] = ray(n.x, n.y, duck.th - Math.PI / 4) || 9999;
-      sens[2] = ray(n.x, n.y, duck.th + Math.PI / 4) || 9999;
-      $('v-front').textContent = sens[0].toFixed(0);
-      $('v-left').textContent = sens[1].toFixed(0);
-      $('v-right').textContent = sens[2].toFixed(0);
-      var sp = autoPilot(dt);
-      duck.ls = sp[0]; duck.rs = sp[1];
-    }
-    step(dt);
-    trail.push({x:duck.x, y:duck.y}); if (trail.length>40) trail.shift();
+  // --- main loop (render only) ---
+  function loop() {
     render(); renderTelemetry();
-    if (autopilot) {
-      debugBuf.push({
-        t: (t/1000).toFixed(2), x: duck.x.toFixed(1), y: duck.y.toFixed(1),
-        th: deg(duck.th), ls: duck.ls.toFixed(2), rs: duck.rs.toFixed(2),
-        f: sens[0].toFixed(0), l: sens[1].toFixed(0), r: sens[2].toFixed(0),
-        near: Math.min(duck.x,PW-duck.x,duck.y,PH-duck.y).toFixed(0),
-        perimEscaping: ap.perimEscaping, avoidState: ap.avoidState,
-        perimCooldown: ap.perimCooldown.toFixed(2)
-      });
-      if (debugBuf.length > debugLimit) debugBuf.shift();
-      var live = {
-        f: debugBuf.length, t: (t/1000).toFixed(1),
-        x: duck.x.toFixed(0), y: duck.y.toFixed(0), th: deg(duck.th),
-        ls: duck.ls.toFixed(2), rs: duck.rs.toFixed(2),
-        sf: sens[0].toFixed(0), sl: sens[1].toFixed(0), sr: sens[2].toFixed(0),
-        near: Math.min(duck.x,PW-duck.x,duck.y,PH-duck.y).toFixed(0),
-        pe: ap.perimEscaping, as: ap.avoidState, pc: ap.perimCooldown.toFixed(2)
-      };
-      if (debugBuf.length < 3 || debugBuf.length % 3 === 0) {
-        fetch('/push', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(live)}).catch(function(){});
-      }
-    }
     requestAnimationFrame(loop);
   }
 
   // --- sensor sliders ---
-  slF.oninput = function(){ sens[0]=+this.value; $('v-front').textContent=sens[0]; };
-  slL.oninput = function(){ sens[1]=+this.value; $('v-left').textContent=sens[1]; };
-  slR.oninput = function(){ sens[2]=+this.value; $('v-right').textContent=sens[2]; };
-  slSpd.oninput = function(){ maxSpeed = +this.value; $('v-speed').textContent = this.value; };
+  slF.oninput = function(){
+    fetch('/api/sensors/sonar', {
+      method:'PUT', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({front: +this.value})
+    }).catch(function(){});
+    $('v-front').textContent = this.value;
+  };
+  slL.oninput = function(){
+    fetch('/api/sensors/sonar', {
+      method:'PUT', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({left: +this.value})
+    }).catch(function(){});
+    $('v-left').textContent = this.value;
+  };
+  slR.oninput = function(){
+    fetch('/api/sensors/sonar', {
+      method:'PUT', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({right: +this.value})
+    }).catch(function(){});
+    $('v-right').textContent = this.value;
+  };
+  slSpd.oninput = function(){
+    fetch('/api/config', {
+      method:'PUT', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({max_speed: +this.value})
+    }).catch(function(){});
+    $('v-speed').textContent = this.value;
+  };
 
   // --- click empty space to create obstacle ---
   svm.addEventListener('click', function(e) {
     if (mode === 'real' || dragging || e.button !== 0) return;
     var p = svgPoint(e);
-    if (p.x < 2 || p.x > PW - 2 || p.y < 2 || p.y > PH - 2) return;
-    if (Math.hypot(p.x - startX, p.y - startY) < DUCK_R + 10) return;
-    if (Math.hypot(p.x - endX, p.y - endY) < DUCK_R + 10) return;
-    obstacles.push({x: p.x, y: p.y, r: 5 + Math.random() * 10});
+    if (p.x < 2 || p.x > pf - 2 || p.y < 2 || p.y > ph - 2) return;
+    if (Math.hypot(p.x - startX, p.y - startY) < duckR + 10) return;
+    if (Math.hypot(p.x - endX, p.y - endY) < duckR + 10) return;
+    fetch('/api/obstacles', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({x: p.x, y: p.y, r: 5 + Math.random() * 10})
+    }).catch(function(){});
   });
 
   // --- mouseup on obstacle circle to delete ---
@@ -449,10 +289,9 @@ button:disabled{opacity:0.4;cursor:default}
     e.stopPropagation();
     var idx = Array.prototype.indexOf.call(elObs.children, e.target);
     if (idx >= 0 && idx < obstacles.length) {
-        obstacles.splice(idx, 1);
+      fetch('/api/obstacles/' + obstacles[idx].id, {method:'DELETE'}).catch(function(){});
     }
   });
-  // stop click from also creating an obstacle on the deleted spot
   elObs.addEventListener('click', function(e) {
     if (e.target.tagName.toLowerCase() !== 'circle') return;
     e.stopPropagation();
@@ -469,12 +308,11 @@ button:disabled{opacity:0.4;cursor:default}
     dragging = 'end';
     e.stopPropagation();
   });
-
   svm.addEventListener('mousemove', function(e) {
     if (!dragging) return;
     var p = svgPoint(e);
-    var x = clamp(p.x, 10, PW - 10);
-    var y = clamp(p.y, 10, PH - 10);
+    var x = clamp(p.x, 10, pf - 10);
+    var y = clamp(p.y, 10, ph - 10);
     if (dragging === 'start') {
       startX = x; startY = y;
       $('start-pt').setAttribute('cx', x);
@@ -489,14 +327,37 @@ button:disabled{opacity:0.4;cursor:default}
       $('end-label').setAttribute('y', y - 14);
     }
   });
-
   document.addEventListener('mouseup', function() {
     if (dragging === 'start') {
-      duck.x = startX; duck.y = startY; duck.th = 0;
-      arrived = false;
+      fetch('/api/sim/goal', {
+        method:'PUT', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({start: {x: startX, y: startY}})
+      }).catch(function(){});
+    } else if (dragging === 'end') {
+      fetch('/api/sim/goal', {
+        method:'PUT', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({end: {x: endX, y: endY}})
+      }).catch(function(){});
     }
     dragging = null;
   });
+
+  // --- WebSocket connection (SIM mode) ---
+  var ws = null;
+  function connectWS() {
+    if (ws) { ws.close(); ws = null; }
+    ws = new WebSocket('ws://' + location.host + '/ws');
+    ws.onmessage = function(e) {
+      var msg = JSON.parse(e.data);
+      if (msg.type === 'state') {
+        updateFromServer(msg.data);
+      }
+    };
+    ws.onclose = function() {
+      setTimeout(connectWS, 2000);
+    };
+    ws.onerror = function() {};
+  }
 
   // --- mode switching ---
   var es = null;
@@ -504,26 +365,27 @@ button:disabled{opacity:0.4;cursor:default}
     mode='sim'; this.classList.add('active'); $('btn-real').classList.remove('active');
     $('conn-row').style.display='none'; $('btn-auto-start').disabled=false; $('btn-auto-stop').disabled=false;
     slF.disabled=false; slL.disabled=false; slR.disabled=false;
-    if (es) { es.close(); es=null; } $('ws-stat').className='ws-status ws-off'; $('ws-stat').textContent='off';
-    arrived = false; dragging = null;
-    startX = 500; startY = 100; endX = 900; endY = 100;
-    $('start-pt').setAttribute('cx', startX); $('start-pt').setAttribute('cy', startY);
-    $('start-label').setAttribute('x', startX); $('start-label').setAttribute('y', startY - 14);
-    $('end-pt').setAttribute('cx', endX); $('end-pt').setAttribute('cy', endY);
-    $('end-label').setAttribute('x', endX); $('end-label').setAttribute('y', endY - 14);
-    resetAll();
+    if (es) { es.close(); es=null; }
+    $('ws-stat').className='ws-status ws-off'; $('ws-stat').textContent='ws off';
+    wsConnected = false;
+    // Connect WS after short delay
+    setTimeout(connectWS, 100);
   };
   $('btn-real').onclick = function(){
     mode='real'; this.classList.add('active'); $('btn-sim').classList.remove('active');
-    $('conn-row').style.display='flex'; autopilot=false;
+    $('conn-row').style.display='flex';
     $('btn-auto-start').disabled=true; $('btn-auto-stop').disabled=true;
     slF.disabled=true; slL.disabled=true; slR.disabled=true;
+    if (ws) { ws.close(); ws=null; }
   };
 
   $('btn-connect').onclick = function(){
     if (es) { es.close(); es=null; }
     var ip = $('pi-ip').value.trim();
-    if (this.textContent === 'Disconnect') { $('ws-stat').className='ws-status ws-off'; $('ws-stat').textContent='off'; this.textContent='Connect'; return; }
+    if (this.textContent === 'Disconnect') {
+      $('ws-stat').className='ws-status ws-off'; $('ws-stat').textContent='off';
+      this.textContent='Connect'; return;
+    }
     es = new EventSource('http://'+ip+':8080/stream');
     es.onopen = function(){
       $('ws-stat').className='ws-status ws-on'; $('ws-stat').textContent='live';
@@ -531,13 +393,7 @@ button:disabled{opacity:0.4;cursor:default}
     };
     es.onmessage = function(e){
       var s = JSON.parse(e.data);
-      duck.x=s.x_cm; duck.y=s.y_cm; duck.th=s.theta_rad;
-      duck.ls=s.left_speed; duck.rs=s.right_speed;
-      sens[0]=s.sonar_front||0; sens[1]=s.sonar_left||0; sens[2]=s.sonar_right||0;
-      elBrain.setAttribute('opacity','1');
-      elBrain.textContent = s.brain_state + (s.avoid_phase ? ' / '+s.avoid_phase : '');
-      $('t-state').textContent = s.brain_state || 'REAL';
-      syncSliders();
+      updateFromServer(s);
     };
     es.onerror = function(){
       $('ws-stat').className='ws-status ws-off'; $('ws-stat').textContent='lost';
@@ -547,26 +403,37 @@ button:disabled{opacity:0.4;cursor:default}
   };
 
   // --- buttons ---
-  $('btn-auto-start').onclick = function(){ autopilot=true; arrived=false; setDrive(0,0); };
-  $('btn-auto-stop').onclick = function(){ autopilot=false; arrived=false; setDrive(0,0); };
-  $('btn-reset').onclick = function(){ resetAll(); };
-  $('btn-clear-obs').onclick = function(){ obstacles=[]; };
-  $('btn-dump').onclick = function(){
-    var blob = new Blob([JSON.stringify({
-      config: {PW: PW, PH: PH, MARGIN: MARGIN, DUCK_R: DUCK_R, OBST_TH: OBST_TH, maxSpeed: maxSpeed, HDG_TOL: HDG_TOL},
-      start: {x: startX, y: startY}, end: {x: endX, y: endY},
-      obstacles: obstacles.map(function(o){ return {x: o.x.toFixed(0), y: o.y.toFixed(0), r: o.r.toFixed(0)}; }),
-      frames: debugBuf
-    }, null, 2)], {type: 'application/json'});
-    var a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'duckbot-debug-' + new Date().toISOString().replace(/:/g,'-').slice(0,19) + '.json';
-    a.click();
-    debugBuf = [];
+  $('btn-auto-start').onclick = function(){
+    fetch('/api/autopilot/start', {method:'POST'}).catch(function(){});
   };
+  $('btn-auto-stop').onclick = function(){
+    fetch('/api/autopilot/stop', {method:'POST'}).catch(function(){});
+  };
+  $('btn-reset').onclick = function(){
+    fetch('/api/duck/reset', {method:'POST'}).catch(function(){});
+  };
+  $('btn-clear-obs').onclick = function(){
+    fetch('/api/obstacles', {method:'DELETE'}).catch(function(){});
+  };
+  $('btn-dump').onclick = function(){
+    fetch('/api/sim/debug').then(function(r){ return r.json(); }).then(function(data){
+      var blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'duckbot-debug-' + new Date().toISOString().replace(/:/g,'-').slice(0,19) + '.json';
+      a.click();
+    }).catch(function(){});
+  };
+  // --- read config on load ---
+  fetch('/api/config').then(function(r){return r.json();}).then(function(cfg){
+    if (cfg.sim && cfg.sim.ARRIVAL) duckR = cfg.sim.DUCK_R || 15;
+    slSpd.value = (cfg.sim && cfg.sim.max_speed) || 0.6;
+    $('v-speed').textContent = slSpd.value;
+  }).catch(function(){});
 
   // --- start ---
-  syncSliders(); $('conn-row').style.display='none';
+  $('conn-row').style.display='none';
+  setTimeout(connectWS, 200);
   requestAnimationFrame(loop);
 })();
 </script>
