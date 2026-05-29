@@ -44,12 +44,12 @@ class SimEngine:
         self.AVOID_COOLDOWN_S = 1.5
         self.AVOID_REACTIVE_FWD_SPEED = 0.5
         self.AVOID_REACTIVE_TIMEOUT = 10.0
-        self.AVOID_REACTIVE_MIN_TIME = 1.5
+        self.AVOID_REACTIVE_MIN_TIME = 2.0
         self.AVOID_TARGET_DIST_CM = 30
         self.AVOID_CLEAR_THRESHOLD_CM = 100
         self.STUCK_DIST_CM = 8
         self.STUCK_WINDOW_S = 1.5
-        self.max_speed = 0.6
+        self.max_speed = 0.8
 
         # --- duck state ---
         self.x = float(START_X_CM)
@@ -84,10 +84,16 @@ class SimEngine:
         self.avoid_state = "none"       # none | reverse | turn | drive
         self.avoid_timer = 0.0
         self._avoid_cooldown = 0.0
-        self._avoid_goal_check = 0.0    # when to check if path to goal is clear
         self._avoid_turn_dir = 1        # alternating turn direction
+        self._turn_target_h = 0.0
+        self._turn_rescored = False
+        self._avoid_cycles = 0          # rapid DRIVE→REVERSE count
+        self._stuck_positions = []     # (x, y) of recent stuck positions
         self._reactive_start_x = 0.0
         self._reactive_start_y = 0.0
+        self._mline_hit_x = 0.0
+        self._mline_hit_y = 0.0
+        self._mline_hit_dist = float("inf")
         self.pos_history = []
         self.perim_escaping = False
         self.escape_heading = 0.0
@@ -194,6 +200,11 @@ class SimEngine:
         py = self.start["y"] + t * dy
         return math.hypot(x - px, y - py) < 15
 
+    def _record_stuck_position(self):
+        self._stuck_positions.append((self.x, self.y))
+        if len(self._stuck_positions) > 5:
+            self._stuck_positions.pop(0)
+
     # --- autopilot FSM (port of JS autoPilot) ---
     def _autopilot(self, dt):
         dist_end = math.hypot(self.x - self.end["x"], self.y - self.end["y"])
@@ -209,7 +220,7 @@ class SimEngine:
         goal_th = math.atan2(self.end["y"] - self.y, self.end["x"] - self.x)
         goal_err = heading_error(goal_th, self.theta)
 
-        # Stuck detection
+        # Stuck detection (GO phase)
         if self.avoid_state == "none" and not self.perim_escaping:
             self.pos_history.append({"x": self.x, "y": self.y, "t": self.sim_time})
             cutoff = self.sim_time - self.STUCK_WINDOW_S
@@ -225,6 +236,9 @@ class SimEngine:
             if stuck:
                 self.avoid_state = "reverse"
                 self.avoid_timer = 0.0
+                self._mline_hit_x = self.x
+                self._mline_hit_y = self.y
+                self._mline_hit_dist = math.hypot(self.x - self.end["x"], self.y - self.end["y"])
                 self.pos_history = []
                 return -self.REVERSE_SPD, -self.REVERSE_SPD
 
@@ -261,40 +275,61 @@ class SimEngine:
             perr = heading_error(self.escape_heading, self.theta)
             if abs(perr) < 0.08:
                 return self.max_speed, self.max_speed
-            # Timeout: exit perim, reverse away from wall
             if self._perim_timer > 2.0:
                 self.perim_escaping = False
                 self.perim_cooldown = 2.0
                 self._perim_timer = 0.0
                 self.avoid_state = "reverse"
                 self.avoid_timer = 0.0
+                self._mline_hit_x = self.x
+                self._mline_hit_y = self.y
+                self._mline_hit_dist = math.hypot(self.x - self.end["x"], self.y - self.end["y"])
                 return -self.REVERSE_SPD, -self.REVERSE_SPD
             return -math.copysign(1, perr), math.copysign(1, perr)
 
-        if self.perim_cooldown > 0:
+        if self.perim_cooldown > 0 and self.avoid_state == "none":
             cperr = heading_error(self.escape_heading, self.theta)
             if abs(cperr) < 0.08:
                 return self.max_speed, self.max_speed
             return -math.copysign(1, cperr), math.copysign(1, cperr)
 
-        # Avoid FSM: REVERSE → TURN → DRIVE
+        # Avoid FSM: REVERSE -> TURN -> DRIVE
         if self.avoid_state != "none":
             self.avoid_timer += dt
             if self.avoid_state == "reverse":
                 if self.avoid_timer >= self.AVOID_REVERSE_S:
                     self.avoid_state = "turn"
                     self.avoid_timer = 0.0
-                    sl = self.sonar_left or 9999
-                    sr = self.sonar_right or 9999
-                    if abs(sl - sr) < 20:
-                        goal_th = math.atan2(self.end["y"] - self.y, self.end["x"] - self.x)
-                        self._avoid_turn_dir = -1 if heading_error(goal_th, self.theta) >= 0 else 1
-                    else:
-                        self._avoid_turn_dir = -1 if sr > sl else 1
+                    self._turn_rescored = False
+                    nx, ny = self._nose_position()["x"], self._nose_position()["y"]
+                    goal_th = math.atan2(self.end["y"] - self.y, self.end["x"] - self.x)
+                    test_offsets = [-math.pi / 3, -math.pi / 6, 0, math.pi / 6, math.pi / 3]
+                    if self._avoid_cycles >= 3:
+                        test_offsets = [-math.pi / 2, -math.pi / 3, -math.pi / 6, 0, math.pi / 6, math.pi / 3, math.pi / 2]
+                    best_h = None
+                    best_score = -999
+                    for off in test_offsets:
+                        test_h = self.theta + off
+                        rng = self._raycast(nx, ny, test_h) or 9999
+                        clearance = min(rng, 200) / 200.0
+                        goal_align = (math.cos(heading_error(goal_th, test_h)) + 1) / 2
+                        score = clearance * 0.4 + goal_align * 0.6
+                        for sx, sy in self._stuck_positions[-5:]:
+                            if abs(heading_error(test_h, math.atan2(sy - self.y, sx - self.x))) < 0.5:
+                                score *= 0.35
+                                break
+                        if score > best_score:
+                            best_score = score
+                            best_h = test_h
+                    self._turn_target_h = best_h
+                    self._avoid_turn_dir = 1 if heading_error(best_h, self.theta) >= 0 else -1
                 else:
                     return -self.REVERSE_SPD, -self.REVERSE_SPD
             if self.avoid_state == "turn":
-                if self.avoid_timer >= 0.25:
+                err = heading_error(self._turn_target_h, self.theta)
+                td = 1 if err >= 0 else -1
+                front_blocked = self.sonar_front is not None and self.sonar_front < self.AVOID_TARGET_DIST_CM
+                if abs(err) < 0.08 and not front_blocked:
                     self.avoid_state = "drive"
                     self.avoid_timer = 0.0
                     self._drive_steer_sign = 0
@@ -302,9 +337,41 @@ class SimEngine:
                     self._drive_flip_time = 0.0
                     self._reactive_start_x = self.x
                     self._reactive_start_y = self.y
+                elif abs(err) < 0.08 and front_blocked and not self._turn_rescored:
+                    self._turn_rescored = True
+                    nx, ny = self._nose_position()["x"], self._nose_position()["y"]
+                    goal_th = math.atan2(self.end["y"] - self.y, self.end["x"] - self.x)
+                    re_offsets = [-math.pi / 2, -math.pi / 3, -math.pi / 6, 0, math.pi / 6, math.pi / 3, math.pi / 2]
+                    best_h2 = None
+                    best_score2 = -999
+                    for off in re_offsets:
+                        test_h = self.theta + off
+                        rng = self._raycast(nx, ny, test_h) or 9999
+                        clearance = min(rng, 200) / 200.0
+                        goal_align = (math.cos(heading_error(goal_th, test_h)) + 1) / 2
+                        score = clearance * 0.4 + goal_align * 0.6
+                        if score > best_score2:
+                            best_score2 = score
+                            best_h2 = test_h
+                    self._turn_target_h = best_h2
                 else:
-                    td = self._avoid_turn_dir
-                    return (-self.TURN_SP * td, self.TURN_SP * td)
+                    can_drive = self.avoid_timer >= 0.5 or (
+                        self.avoid_timer >= 0.25 and not front_blocked
+                    ) or (
+                        self.avoid_timer >= 0.15 and self.sonar_front is not None
+                        and self.sonar_front > self.AVOID_CLEAR_THRESHOLD_CM
+                    )
+                    if can_drive:
+                        self.avoid_state = "drive"
+                        self.avoid_timer = 0.0
+                        self._drive_steer_sign = 0
+                        self._drive_steer_flips = 0
+                        self._drive_flip_time = 0.0
+                        self._reactive_start_x = self.x
+                        self._reactive_start_y = self.y
+                        self._turn_rescored = False
+                    else:
+                        return (-self.TURN_SP * td, self.TURN_SP * td)
             if self.avoid_state == "drive":
                 # Bug2 exit: crossed m-line closer to goal than hit point
                 if self.avoid_timer >= self.AVOID_REACTIVE_MIN_TIME:
@@ -314,54 +381,54 @@ class SimEngine:
                             self.avoid_state = "none"
                             self.avoid_timer = 0.0
                             self._avoid_cooldown = self.AVOID_COOLDOWN_S
+                            self._record_stuck_position()
                             return self.max_speed, self.max_speed
-                # Fallback exit: front clear + minimum drive time
+                # Smart fallback: past hit point + front clear
                 if (self.avoid_timer >= self.AVOID_REACTIVE_MIN_TIME
+                        and self.x > self._mline_hit_x + 50
                         and f > 0 and f > self.AVOID_CLEAR_THRESHOLD_CM):
                     self.avoid_state = "none"
                     self.avoid_timer = 0.0
                     self._avoid_cooldown = self.AVOID_COOLDOWN_S
+                    self._record_stuck_position()
                     return self.max_speed, self.max_speed
                 # Timeout
                 if self.avoid_timer >= self.AVOID_REACTIVE_TIMEOUT:
                     self.avoid_state = "none"
                     self.avoid_timer = 0.0
-                    self._avoid_cooldown = self.AVOID_COOLDOWN_S
+                    self._record_stuck_position()
                     return self.max_speed, self.max_speed
                 # Stuck detection: dual-threshold
                 self._drive_flip_time += dt
                 traveled = math.hypot(
                     self.x - self._reactive_start_x,
                     self.y - self._reactive_start_y)
-                if self.avoid_timer > 1.0 and traveled < 3.0:
+                if self.avoid_timer > 0.5 and traveled < 3.0:
+                    self._avoid_cycles += 1
                     self.avoid_state = "reverse"
                     self.avoid_timer = 0.0
                     return -self.REVERSE_SPD, -self.REVERSE_SPD
                 if self.avoid_timer > 2.0 and traveled < 5.0:
+                    self._avoid_cycles += 1
                     self.avoid_state = "reverse"
                     self.avoid_timer = 0.0
                     return -self.REVERSE_SPD, -self.REVERSE_SPD
-                # Oscillation detection: steer direction flipping rapidly
+                # Oscillation detection
                 if self._drive_flip_time > 1.0:
                     if self._drive_steer_flips >= 4:
+                        self._avoid_cycles += 1
                         self.avoid_state = "reverse"
                         self.avoid_timer = 0.0
                         return -self.REVERSE_SPD, -self.REVERSE_SPD
                     self._drive_flip_time = 0.0
                     self._drive_steer_flips = 0
-                # Wall approach: exit DRIVE so perim/GO can recover
-                near_drive = min(self.x, self.PW - self.x, self.y, self.PH - self.y)
-                if near_drive < self.MARGIN and self.avoid_timer > 0.5:
-                    self.avoid_state = "none"
-                    self.avoid_timer = 0.0
-                    self._avoid_cooldown = self.AVOID_COOLDOWN_S
-                    return self.max_speed, self.max_speed
-                # Steering: wall-following when tight, straight when open
+                # Steering: wall-following
                 fwd = self.AVOID_REACTIVE_FWD_SPEED
                 sl = self.sonar_left or 9999
                 sr = self.sonar_right or 9999
-                # Surrounded: all sensors blocked → reverse out
+                # Surrounded
                 if f > 0 and f < 20 and min(sl, sr) < 15:
+                    self._avoid_cycles += 1
                     self.avoid_state = "reverse"
                     self.avoid_timer = 0.0
                     return -self.REVERSE_SPD, -self.REVERSE_SPD
@@ -381,7 +448,7 @@ class SimEngine:
                             steer -= 0.15 * (1.0 - f / (T * 2))
                     steer = clamp(steer, -self.TURN_SP, self.TURN_SP)
                 elif f > 0 and f < T * 3:
-                    # Moderate proximity: simple steer away
+                    # Moderate proximity
                     ratio = 1.0 - min(1.0, f / (T * 3))
                     steer = ratio * self.TURN_SP * 0.7
                     ts = -1 if sl > sr else 1
@@ -435,7 +502,15 @@ class SimEngine:
         self.sim_time += dt
 
         if self.sweep_requested:
-            self._run_sim_sweep()
+            def __sonar_at_angle(phi_rad):
+                rng = self._raycast(self.x, self.y, phi_rad)
+                return rng if (rng is not None and rng > 20) else None
+            readings, _meta = simulate_sweep(__sonar_at_angle, duck_x=self.x, duck_y=self.y)
+            wm = WallMap()
+            wm.init_from_sweep(readings, duck_x=self.x, duck_y=self.y)
+            self.wall_map = wm
+            self.sweep_readings = readings
+            self.sweep_requested = False
 
         if self.autopilot_on:
             n = self._nose_position()
@@ -473,14 +548,16 @@ class SimEngine:
 
         prev_x, prev_y = self.x, self.y
         self._step_physics(dt)
-        # Bump detection: if duck tried to move forward but was blocked by obstacle
         if (self.autopilot_on and self.avoid_state == "none"
-                and self.x == prev_x and self.y == prev_y
+                and abs(self.x - prev_x) < 0.5 and abs(self.y - prev_y) < 0.5
                 and self.left_speed > 0 and self.right_speed > 0):
             self._blocked_count += 1
-            if self._blocked_count > 3:  # 4+ consecutive blocks = stuck
+            if self._blocked_count > 2:
                 self.avoid_state = "reverse"
                 self.avoid_timer = 0.0
+                self._mline_hit_x = self.x
+                self._mline_hit_y = self.y
+                self._mline_hit_dist = math.hypot(self.x - self.end["x"], self.y - self.end["y"])
                 self.pos_history = []
                 self._blocked_count = 0
         else:
@@ -651,29 +728,6 @@ class SimEngine:
             self.sweep_requested = True
             self.wall_map_visible = True
             return {"ok": True}
-
-    def _run_sim_sweep(self):
-        origin_x = self.x
-        origin_y = self.y
-
-        def sonar_at_angle(phi_rad):
-            rng = self._raycast(origin_x, origin_y, phi_rad)
-            if rng is not None and rng > 20:
-                return rng
-            return None
-
-        readings, _meta = simulate_sweep(
-            sonar_at_angle,
-            duck_x=self.x,
-            duck_y=self.y,
-        )
-
-        wm = WallMap()
-        wm.init_from_sweep(readings, duck_x=self.x, duck_y=self.y)
-        self.wall_map = wm
-        self.sweep_readings = readings
-        self.sweep_requested = False
-        return wm
 
     def hide_walls(self):
         with self._lock:

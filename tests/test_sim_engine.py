@@ -333,10 +333,6 @@ class TestSimEngineNavigation:
         s = e.get_state()
         assert s["x_cm"] != prev_x
 
-    def test_debug_buffer(self):
+    def test_wall_map_visible_by_default(self):
         e = SimEngine()
-        e.set_autopilot(True)
-        for _ in range(50):
-            e.step(0.05)
-        # get_debug is not implemented on SimEngine — test passes trivially
-        assert True
+        assert e.wall_map_visible is True

@@ -364,36 +364,3 @@ def test_full_sim_run():
     print(f"  PASS: autopilot → near end, inside={inside}")
 
 
-# ---------------------------------------------------------------------------
-# Runner
-# ---------------------------------------------------------------------------
-def run_all():
-    tests = [
-        ("sweep basic", test_sweep_basic),
-        ("EKF drift recovery", test_ekf_drift_recovery),
-        ("obstacle rejection", test_obstacle_rejection),
-        ("no-wall no-correction", test_no_wall_no_correction),
-        ("perimeter always correct", test_perimeter_always_correct),
-        ("EKF tracks with drift", test_ekf_tracks_with_drift),
-        ("obstacle scenario", test_obstacle_scenario),
-        ("heavy drift varied heading", test_heavy_drift_with_varied_headings),
-        ("x-correction gating", test_x_correction_gating),
-        ("reacquire triggers", test_reacquire_triggers),
-        ("full sim run", test_full_sim_run),
-    ]
-    failed = 0
-    for name, fn in tests:
-        try:
-            fn()
-        except Exception as e:
-            failed += 1
-            print(f"  FAIL: {name} — {e}")
-    print(f"\n{'='*50}")
-    print(f"  {len(tests) - failed}/{len(tests)} tests passed")
-    print(f"{'='*50}")
-    return failed == 0
-
-
-if __name__ == "__main__":
-    ok = run_all()
-    exit(0 if ok else 1)
