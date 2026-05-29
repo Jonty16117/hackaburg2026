@@ -42,6 +42,7 @@ class EKFLocalizer:
         self.R = EKF_SONAR_NOISE_CM2
 
         self.lost_count = 0
+        self._no_wall_count = 0
         self.total_corrections = 0
         self.x_corrections = 0
         self.last_x_correction_time = time.time()
@@ -59,6 +60,8 @@ class EKFLocalizer:
         self.theta = float(theta)
 
     def needs_x_correction(self):
+        if self.total_corrections < 5:
+            return False
         return (time.time() - self.last_x_correction_time
                 > EKF_X_CORRECTION_INTERVAL_S)
 
@@ -104,6 +107,7 @@ class EKFLocalizer:
             self.x, self.y, self.theta,
         )
         if wall_idx is None:
+            self._no_wall_count += 1
             return
 
         wall = self.wall_map.walls[wall_idx]
@@ -145,6 +149,7 @@ class EKFLocalizer:
         self.cov = _mat_mul_3x3(I_KH, self.cov)
 
         self.total_corrections += 1
+        self._no_wall_count = 0
         if abs(wall.A) > 0.9:
             self.x_corrections += 1
             self.last_x_correction_time = time.time()
@@ -155,6 +160,8 @@ class EKFLocalizer:
         idle_time = time.time() - self.last_move_time
         if idle_time < 8.0:
             return False
+        if self._no_wall_count > 200:
+            return True
         return self.lost_count > EKF_LOST_COUNT_MAX
 
     def get_covariance_diag(self):

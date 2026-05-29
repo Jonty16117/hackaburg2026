@@ -149,14 +149,9 @@ class WallMap:
         return math.atan2(sin_s, cos_s)
 
     def _detect_orientation(self, segments, duck_x, duck_y):
-        expected_side = duck_x
         expected_other_side = abs(PERIMETER_WIDTH_CM - duck_x)
-        expected_near = min(duck_y, PERIMETER_HEIGHT_CM - duck_y)
-        expected_far = max(duck_y, PERIMETER_HEIGHT_CM - duck_y)
-        tolerance = abs(expected_side - expected_other_side)
-        if expected_side == expected_other_side:
-            expected_side = max(duck_x, PERIMETER_WIDTH_CM - duck_x)
-        if tolerance < 50:
+        tolerance = abs(duck_x - expected_other_side)
+        if duck_x == expected_other_side:
             tolerance = 120
 
         delta = 0.0
@@ -180,21 +175,15 @@ class WallMap:
             phi_orth, r_orth = far_from_0
             if r0 > r_orth:
                 x_candidate = normal_0
-                y_candidate = phi_orth
             else:
                 x_candidate = phi_orth
-                y_candidate = normal_0
         elif n_seen >= 2:
-            r0v, r1v = segs[0][1], segs[1][1]
-            if r0v > r1v:
+            if segs[0][1] > segs[1][1]:
                 x_candidate = segs[0][0]
-                y_candidate = segs[1][0]
             else:
                 x_candidate = segs[1][0]
-                y_candidate = segs[0][0]
         else:
             x_candidate = segs[0][0]
-            y_candidate = segs[0][0]
 
         x_best = x_candidate
         for test_phi in [x_candidate, x_candidate + math.pi]:
@@ -203,18 +192,6 @@ class WallMap:
                 x_best = test_phi
 
         delta = x_best
-
-        y_best = y_candidate
-        target_y = delta + math.pi / 2
-        for test_phi in [y_candidate, y_candidate + math.pi]:
-            test_phi = math.atan2(math.sin(test_phi), math.cos(test_phi))
-            diff = abs(math.atan2(
-                math.sin(test_phi - target_y),
-                math.cos(test_phi - target_y),
-            ))
-            if diff < math.pi / 2:
-                y_best = test_phi
-                break
 
         side_dist = expected_other_side
         best_measured = None

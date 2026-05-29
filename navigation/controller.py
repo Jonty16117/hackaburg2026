@@ -134,6 +134,7 @@ def run_navigation(on_cycle=None):
                 ekf.correct(d)
 
             if ekf.should_reacquire():
+                _x_correction_active = False
                 print("\n EKF lost while idle — re-running sweep...")
                 try:
                     sweeper = SonarSweep(
@@ -162,10 +163,14 @@ def run_navigation(on_cycle=None):
                 xc_elapsed = now - _x_correction_start
                 if xc_elapsed > _x_correction_timeout:
                     _x_correction_active = False
+                elif d is not None and d < BRAIN_CFG["OBSTACLE_THRESHOLD_CM"]:
+                    _x_correction_active = False
                 elif ekf.x_corrections > _x_corrections_before:
                     _x_correction_active = False
                 else:
-                    x_wall = wall_map.walls[0]
+                    x_walls = [w for w in wall_map.walls if abs(w.A) > 0.9]
+                    x_wall = min(x_walls, key=lambda w: abs(
+                        heading_error(w.normal_angle, theta)))
                     err = heading_error(x_wall.normal_angle, theta)
                     if abs(err) > 0.26:
                         td = 1 if err > 0 else -1
