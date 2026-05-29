@@ -42,13 +42,13 @@ class SimEngine:
         self.HDG_TOL = 0.02
         self.AVOID_REVERSE_S = 0.5
         self.AVOID_COOLDOWN_S = 1.5
-        self.AVOID_REACTIVE_FWD_SPEED = 0.5
+        self.AVOID_REACTIVE_FWD_SPEED = 0.55
         self.AVOID_REACTIVE_TIMEOUT = 10.0
         self.AVOID_REACTIVE_MIN_TIME = 2.0
         self.AVOID_TARGET_DIST_CM = 30
         self.AVOID_CLEAR_THRESHOLD_CM = 100
         self.STUCK_DIST_CM = 8
-        self.STUCK_WINDOW_S = 1.5
+        self.STUCK_WINDOW_S = 1.0
         self.max_speed = 0.8
 
         # --- duck state ---
@@ -58,6 +58,7 @@ class SimEngine:
         self.left_speed = 0.0
         self.right_speed = 0.0
         self._blocked_count = 0
+        self.scenario_label = ""
 
         # --- sensors ---
         self.sonar_front = None
@@ -205,6 +206,22 @@ class SimEngine:
         if len(self._stuck_positions) > 5:
             self._stuck_positions.pop(0)
 
+    def _score_headings(self, offsets, nx, ny, goal_th):
+        best = None
+        best_score = -999
+        for off in offsets:
+            th = self.theta + off
+            rng = self._raycast(nx, ny, th) or 9999
+            s = min(rng, 200) / 200.0 * 0.4 + (math.cos(heading_error(goal_th, th)) + 1) / 2 * 0.6
+            for sx, sy in self._stuck_positions[-5:]:
+                if abs(heading_error(th, math.atan2(sy - self.y, sx - self.x))) < 0.5:
+                    s *= 0.35
+                    break
+            if s > best_score:
+                best_score = s
+                best = th
+        return best, best_score
+
     # --- autopilot FSM (port of JS autoPilot) ---
     def _autopilot(self, dt):
         dist_end = math.hypot(self.x - self.end["x"], self.y - self.end["y"])
@@ -303,26 +320,12 @@ class SimEngine:
                     self._turn_rescored = False
                     nx, ny = self._nose_position()["x"], self._nose_position()["y"]
                     goal_th = math.atan2(self.end["y"] - self.y, self.end["x"] - self.x)
-                    test_offsets = [-math.pi / 3, -math.pi / 6, 0, math.pi / 6, math.pi / 3]
                     if self._avoid_cycles >= 3:
-                        test_offsets = [-math.pi / 2, -math.pi / 3, -math.pi / 6, 0, math.pi / 6, math.pi / 3, math.pi / 2]
-                    best_h = None
-                    best_score = -999
-                    for off in test_offsets:
-                        test_h = self.theta + off
-                        rng = self._raycast(nx, ny, test_h) or 9999
-                        clearance = min(rng, 200) / 200.0
-                        goal_align = (math.cos(heading_error(goal_th, test_h)) + 1) / 2
-                        score = clearance * 0.4 + goal_align * 0.6
-                        for sx, sy in self._stuck_positions[-5:]:
-                            if abs(heading_error(test_h, math.atan2(sy - self.y, sx - self.x))) < 0.5:
-                                score *= 0.35
-                                break
-                        if score > best_score:
-                            best_score = score
-                            best_h = test_h
-                    self._turn_target_h = best_h
-                    self._avoid_turn_dir = 1 if heading_error(best_h, self.theta) >= 0 else -1
+                        test_offsets = [-math.pi/2, -math.pi/3, -math.pi/6, 0, math.pi/6, math.pi/3, math.pi/2]
+                    else:
+                        test_offsets = [-math.pi/3, -math.pi/6, 0, math.pi/6, math.pi/3]
+                    self._turn_target_h = self._score_headings(test_offsets, nx, ny, goal_th)[0]
+                    self._avoid_turn_dir = 1 if heading_error(self._turn_target_h, self.theta) >= 0 else -1
                 else:
                     return -self.REVERSE_SPD, -self.REVERSE_SPD
             if self.avoid_state == "turn":
@@ -341,19 +344,8 @@ class SimEngine:
                     self._turn_rescored = True
                     nx, ny = self._nose_position()["x"], self._nose_position()["y"]
                     goal_th = math.atan2(self.end["y"] - self.y, self.end["x"] - self.x)
-                    re_offsets = [-math.pi / 2, -math.pi / 3, -math.pi / 6, 0, math.pi / 6, math.pi / 3, math.pi / 2]
-                    best_h2 = None
-                    best_score2 = -999
-                    for off in re_offsets:
-                        test_h = self.theta + off
-                        rng = self._raycast(nx, ny, test_h) or 9999
-                        clearance = min(rng, 200) / 200.0
-                        goal_align = (math.cos(heading_error(goal_th, test_h)) + 1) / 2
-                        score = clearance * 0.4 + goal_align * 0.6
-                        if score > best_score2:
-                            best_score2 = score
-                            best_h2 = test_h
-                    self._turn_target_h = best_h2
+                    re_offsets = [-math.pi/2, -math.pi/3, -math.pi/6, 0, math.pi/6, math.pi/3, math.pi/2]
+                    self._turn_target_h = self._score_headings(re_offsets, nx, ny, goal_th)[0]
                 else:
                     can_drive = self.avoid_timer >= 0.5 or (
                         self.avoid_timer >= 0.25 and not front_blocked
@@ -549,7 +541,6 @@ class SimEngine:
                 self._mline_hit_y = self.y
                 self._mline_hit_dist = math.hypot(self.x - self.end["x"], self.y - self.end["y"])
                 self.pos_history = []
-                self._blocked_count = 0
         else:
             self._blocked_count = 0
 
@@ -601,6 +592,7 @@ class SimEngine:
             "trail": list(self.trail),
             "config": self._build_config(),
             "walls": wall_state,
+            "scenario_label": self.scenario_label,
         }
 
     def _build_config(self):
