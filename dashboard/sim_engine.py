@@ -83,7 +83,6 @@ class SimEngine:
         self.avoid_state = "none"       # none | reverse | turn | drive
         self.avoid_timer = 0.0
         self._avoid_cooldown = 0.0
-        self._avoid_goal_check = 0.0    # when to check if path to goal is clear
         self._avoid_turn_dir = 1        # alternating turn direction
         self._turn_target_h = 0.0
         self._turn_rescored = False
@@ -200,6 +199,11 @@ class SimEngine:
         py = self.start["y"] + t * dy
         return math.hypot(x - px, y - py) < 15
 
+    def _record_stuck_position(self):
+        self._stuck_positions.append((self.x, self.y))
+        if len(self._stuck_positions) > 5:
+            self._stuck_positions.pop(0)
+
     # --- autopilot FSM (port of JS autoPilot) ---
     def _autopilot(self, dt):
         dist_end = math.hypot(self.x - self.end["x"], self.y - self.end["y"])
@@ -301,7 +305,8 @@ class SimEngine:
                     test_offsets = [-math.pi / 3, -math.pi / 6, 0, math.pi / 6, math.pi / 3]
                     if self._avoid_cycles >= 3:
                         test_offsets = [-math.pi / 2, -math.pi / 3, -math.pi / 6, 0, math.pi / 6, math.pi / 3, math.pi / 2]
-                    best_h = None; best_score = -999
+                    best_h = None
+                    best_score = -999
                     for off in test_offsets:
                         test_h = self.theta + off
                         rng = self._raycast(nx, ny, test_h) or 9999
@@ -313,7 +318,8 @@ class SimEngine:
                                 score *= 0.35
                                 break
                         if score > best_score:
-                            best_score = score; best_h = test_h
+                            best_score = score
+                            best_h = test_h
                     self._turn_target_h = best_h
                     self._avoid_turn_dir = 1 if heading_error(best_h, self.theta) >= 0 else -1
                 else:
@@ -335,7 +341,8 @@ class SimEngine:
                     nx, ny = self._nose_position()["x"], self._nose_position()["y"]
                     goal_th = math.atan2(self.end["y"] - self.y, self.end["x"] - self.x)
                     re_offsets = [-math.pi / 2, -math.pi / 3, -math.pi / 6, 0, math.pi / 6, math.pi / 3, math.pi / 2]
-                    best_h2 = None; best_score2 = -999
+                    best_h2 = None
+                    best_score2 = -999
                     for off in re_offsets:
                         test_h = self.theta + off
                         rng = self._raycast(nx, ny, test_h) or 9999
@@ -343,16 +350,16 @@ class SimEngine:
                         goal_align = (math.cos(heading_error(goal_th, test_h)) + 1) / 2
                         score = clearance * 0.4 + goal_align * 0.6
                         if score > best_score2:
-                            best_score2 = score; best_h2 = test_h
+                            best_score2 = score
+                            best_h2 = test_h
                     self._turn_target_h = best_h2
                 else:
-                    can_drive = False
-                    if self.avoid_timer >= 0.15 and self.sonar_front is not None and self.sonar_front > self.AVOID_CLEAR_THRESHOLD_CM:
-                        can_drive = True
-                    elif self.avoid_timer >= 0.25 and not front_blocked:
-                        can_drive = True
-                    elif self.avoid_timer >= 0.5:
-                        can_drive = True
+                    can_drive = self.avoid_timer >= 0.5 or (
+                        self.avoid_timer >= 0.25 and not front_blocked
+                    ) or (
+                        self.avoid_timer >= 0.15 and self.sonar_front is not None
+                        and self.sonar_front > self.AVOID_CLEAR_THRESHOLD_CM
+                    )
                     if can_drive:
                         self.avoid_state = "drive"
                         self.avoid_timer = 0.0
@@ -373,9 +380,7 @@ class SimEngine:
                             self.avoid_state = "none"
                             self.avoid_timer = 0.0
                             self._avoid_cooldown = self.AVOID_COOLDOWN_S
-                            self._stuck_positions.append((self.x, self.y))
-                            if len(self._stuck_positions) > 5:
-                                self._stuck_positions.pop(0)
+                            self._record_stuck_position()
                             return self.max_speed, self.max_speed
                 # Smart fallback: past hit point + front clear
                 if (self.avoid_timer >= self.AVOID_REACTIVE_MIN_TIME
@@ -384,17 +389,13 @@ class SimEngine:
                     self.avoid_state = "none"
                     self.avoid_timer = 0.0
                     self._avoid_cooldown = self.AVOID_COOLDOWN_S
-                    self._stuck_positions.append((self.x, self.y))
-                    if len(self._stuck_positions) > 5:
-                        self._stuck_positions.pop(0)
+                    self._record_stuck_position()
                     return self.max_speed, self.max_speed
                 # Timeout
                 if self.avoid_timer >= self.AVOID_REACTIVE_TIMEOUT:
                     self.avoid_state = "none"
                     self.avoid_timer = 0.0
-                    self._stuck_positions.append((self.x, self.y))
-                    if len(self._stuck_positions) > 5:
-                        self._stuck_positions.pop(0)
+                    self._record_stuck_position()
                     return self.max_speed, self.max_speed
                 # Stuck detection: dual-threshold
                 self._drive_flip_time += dt
@@ -500,7 +501,15 @@ class SimEngine:
         self.sim_time += dt
 
         if self.sweep_requested:
-            self._run_sim_sweep()
+            def __sonar_at_angle(phi_rad):
+                rng = self._raycast(self.x, self.y, phi_rad)
+                return rng if (rng is not None and rng > 20) else None
+            readings, _meta = simulate_sweep(__sonar_at_angle, duck_x=self.x, duck_y=self.y)
+            wm = WallMap()
+            wm.init_from_sweep(readings, duck_x=self.x, duck_y=self.y)
+            self.wall_map = wm
+            self.sweep_readings = readings
+            self.sweep_requested = False
 
         if self.autopilot_on:
             n = self._nose_position()
@@ -718,29 +727,6 @@ class SimEngine:
             self.sweep_requested = True
             self.wall_map_visible = True
             return {"ok": True}
-
-    def _run_sim_sweep(self):
-        origin_x = self.x
-        origin_y = self.y
-
-        def sonar_at_angle(phi_rad):
-            rng = self._raycast(origin_x, origin_y, phi_rad)
-            if rng is not None and rng > 20:
-                return rng
-            return None
-
-        readings, _meta = simulate_sweep(
-            sonar_at_angle,
-            duck_x=self.x,
-            duck_y=self.y,
-        )
-
-        wm = WallMap()
-        wm.init_from_sweep(readings, duck_x=self.x, duck_y=self.y)
-        self.wall_map = wm
-        self.sweep_readings = readings
-        self.sweep_requested = False
-        return wm
 
     def hide_walls(self):
         with self._lock:
