@@ -34,8 +34,8 @@ except ImportError:
     LEFT_PIN = 12; RIGHT_PIN = 13
     SONAR_TRIG = 23; SONAR_ECHO = 24
     PERIMETER_CM = [(0, 0), (1000, 0), (1000, 200), (0, 200)]
-    START_X_CM = 500; START_Y_CM = 100; START_HEADING_RAD = 0.0
-    END_X_CM = 900; END_Y_CM = 100
+    START_X_CM = 30; START_Y_CM = 100; START_HEADING_RAD = 0.0
+    END_X_CM = 960; END_Y_CM = 100
     BRAIN_CFG = {
         "OBSTACLE_THRESHOLD_CM": 50, "PERIMETER_MARGIN_CM": 30,
         "EXPLORE_SPEED": 0.4, "TURN_SPEED": 0.5,
@@ -79,8 +79,8 @@ _real_state = {
     "brain_state": "IDLE", "avoid_phase": None,
     "inside": True, "edge_cm": 100.0,
     "autopilot": False, "avoid_state": "none", "arrived": False,
-    "frame": 0, "obstacles": [], "start": {"x": 500, "y": 100},
-    "end": {"x": 900, "y": 100},
+    "frame": 0, "obstacles": [], "start": {"x": START_X_CM, "y": START_Y_CM},
+    "end": {"x": END_X_CM, "y": END_Y_CM},
     "config": {},
     "walls": None,
 }
