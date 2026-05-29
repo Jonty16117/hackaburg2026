@@ -10,7 +10,7 @@ Usage:
 import math
 import time
 
-from motors.i2c_drive import I2C_ADDR, I2C_REG, I2C_BUS
+from motors.i2c_drive import I2C_ADDR, I2C_BUS
 from navigation.config import (
     SONAR_TRIG, SONAR_ECHO,
     PERIMETER_CM, START_X_CM, START_Y_CM, START_HEADING_RAD,
@@ -107,7 +107,7 @@ def run_navigation(on_cycle=None):
           f"@{math.degrees(START_HEADING_RAD):.0f}°")
     print(f"  End          : ({END_X_CM}, {END_Y_CM})")
     print(f"  Sonar       : TRIG=GPIO{SONAR_TRIG}  ECHO=GPIO{SONAR_ECHO}")
-    print(f"  Motors      : I2C addr=0x{I2C_ADDR:02X}  reg=0x{I2C_REG:02X}  bus={I2C_BUS}")
+    print(f"  Motors      : I2C addr=0x{I2C_ADDR:02X}  bus={I2C_BUS}")
     print(f"  Loop rate   : {BRAIN_CFG['LOOP_HZ']} Hz")
     print("  Press Ctrl+C to stop.")
     print("=" * 72)
