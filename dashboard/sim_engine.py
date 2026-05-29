@@ -42,13 +42,13 @@ class SimEngine:
         self.HDG_TOL = 0.02
         self.AVOID_REVERSE_S = 0.5
         self.AVOID_COOLDOWN_S = 1.5
-        self.AVOID_REACTIVE_FWD_SPEED = 0.5
+        self.AVOID_REACTIVE_FWD_SPEED = 0.55
         self.AVOID_REACTIVE_TIMEOUT = 10.0
         self.AVOID_REACTIVE_MIN_TIME = 2.0
         self.AVOID_TARGET_DIST_CM = 30
         self.AVOID_CLEAR_THRESHOLD_CM = 100
         self.STUCK_DIST_CM = 8
-        self.STUCK_WINDOW_S = 1.5
+        self.STUCK_WINDOW_S = 1.0
         self.max_speed = 0.8
 
         # --- duck state ---
