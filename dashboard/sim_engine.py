@@ -71,8 +71,9 @@ class SimEngine:
         self.end = {"x": 900, "y": 100}
 
         # --- wall mapping ---
-        self.wall_map = None
-        self.wall_map_visible = False
+        self.wall_map = WallMap()
+        self.wall_map.init_known_walls(delta_theta=0.0)
+        self.wall_map_visible = True
         self.sweep_requested = False
         self.sweep_readings = None
 
