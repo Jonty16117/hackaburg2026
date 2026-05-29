@@ -9,7 +9,7 @@ log = logging.getLogger(__name__)
 I2C_BUS = 1
 I2C_ADDR = 0x08
 PWM_MIN = 1000
-PWM_MAX = 1500
+PWM_FIXED = 1200
 
 I2C_SLAVE = 0x0703
 I2C_TIMEOUT = 0x0706
@@ -20,8 +20,8 @@ class I2CDrive:
     def __init__(self, bus=I2C_BUS, address=I2C_ADDR):
         self._address = address
         self._fd = None
-        log.info("I2C  bus=%d  addr=0x%02X  range=%d-%d",
-                 bus, address, PWM_MIN, PWM_MAX)
+        log.info("I2C  bus=%d  addr=0x%02X  stop=%d  fwd=%d",
+                 bus, address, PWM_MIN, PWM_FIXED)
         try:
             self._fd = os.open(f"/dev/i2c-{bus}", os.O_RDWR)
             fcntl.ioctl(self._fd, I2C_TIMEOUT, 2)
@@ -36,7 +36,7 @@ class I2CDrive:
         def pwm(speed):
             if speed <= 0:
                 return PWM_MIN
-            return round(PWM_MIN + speed * (PWM_MAX - PWM_MIN))
+            return PWM_FIXED
 
         lp = pwm(left_speed)
         rp = pwm(right_speed)
