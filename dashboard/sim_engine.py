@@ -17,6 +17,7 @@ import threading
 from navigation.utils import clamp, normalize_angle, heading_error
 from navigation.wall_map import WallMap
 from navigation.sonar_sweep import simulate_sweep
+from navigation.config import START_X_CM, START_Y_CM, END_X_CM, END_Y_CM
 
 
 class SimEngine:
@@ -51,8 +52,8 @@ class SimEngine:
         self.max_speed = 0.8
 
         # --- duck state ---
-        self.x = 500.0
-        self.y = 100.0
+        self.x = float(START_X_CM)
+        self.y = float(START_Y_CM)
         self.theta = 0.0
         self.left_speed = 0.0
         self.right_speed = 0.0
@@ -67,8 +68,8 @@ class SimEngine:
         # --- environment ---
         self.obstacles = []    # [{id, x, y, r}]
         self._next_obs_id = 0
-        self.start = {"x": 500, "y": 100}
-        self.end = {"x": 900, "y": 100}
+        self.start = {"x": START_X_CM, "y": START_Y_CM}
+        self.end = {"x": END_X_CM, "y": END_Y_CM}
 
         # --- wall mapping ---
         self.wall_map = WallMap()

@@ -1,5 +1,6 @@
 from navigation.brain import Brain, State, _AvoidPhase
 from navigation.perimeter import Perimeter
+from navigation.config import END_X_CM, END_Y_CM
 
 
 PERIMETER_CM = [
@@ -23,8 +24,8 @@ BRAIN_CFG = {
     "AVOID_TARGET_DIST_CM": 30,
     "AVOID_REACTIVE_FWD_SPEED": 0.3,
     "AVOID_REACTIVE_TIMEOUT": 30.0,
-    "GOAL_X": 900,
-    "GOAL_Y": 100,
+    "GOAL_X": END_X_CM,
+    "GOAL_Y": END_Y_CM,
     "STUCK_THRESHOLD_COUNT": 3,
     "STUCK_WINDOW_TIME": 10.0,
     "STUCK_ESCAPE_TIME": 2.0,
@@ -42,7 +43,7 @@ BRAIN_CFG = {
 
 def _brain():
     p = Perimeter(PERIMETER_CM)
-    return Brain(p, BRAIN_CFG, goal_x=900, goal_y=100)
+    return Brain(p, BRAIN_CFG, goal_x=END_X_CM, goal_y=END_Y_CM)
 
 
 def test_initial_state():

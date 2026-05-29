@@ -52,6 +52,8 @@ class Wall:
         return abs(diff) <= math.radians(half_cone_deg)
 
     def refine(self, x, y, sonar_range):
+        if self.locked:
+            return
         delta = abs(self.signed_distance(x, y)) - sonar_range
         nx = x + sonar_range * self.A
         ny = y + sonar_range * self.B

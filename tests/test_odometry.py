@@ -1,12 +1,13 @@
 import math
 from navigation.odometry import Odometry
+from navigation.config import START_X_CM, START_Y_CM
 
 
 def test_odometry_init():
-    o = Odometry(500, 100, 0, 30, 100)
+    o = Odometry(START_X_CM, START_Y_CM, 0, 30, 100)
     x, y, theta = o.position()
-    assert x == 500
-    assert y == 100
+    assert x == START_X_CM
+    assert y == START_Y_CM
     assert theta == 0
 
 
@@ -37,11 +38,11 @@ def test_odometry_forward_with_turn():
 
 
 def test_odometry_zero_speeds():
-    o = Odometry(500, 100, 0.5, 30, 100)
+    o = Odometry(START_X_CM, START_Y_CM, 0.5, 30, 100)
     o.update(0, 0, 1.0)
     x, y, theta = o.position()
-    assert abs(x - 500) < 0.1
-    assert abs(y - 100) < 0.1
+    assert abs(x - START_X_CM) < 0.1
+    assert abs(y - START_Y_CM) < 0.1
     assert abs(theta - 0.5) < 0.1
 
 
