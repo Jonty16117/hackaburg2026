@@ -26,13 +26,10 @@ HERE = pathlib.Path(__file__).parent
 # ---------------------------------------------------------------------------
 try:
     from navigation.config import (
-        LEFT_PIN, RIGHT_PIN, SONAR_TRIG, SONAR_ECHO,
         PERIMETER_CM, START_X_CM, START_Y_CM, START_HEADING_RAD,
         END_X_CM, END_Y_CM, BRAIN_CFG,
     )
 except ImportError:
-    LEFT_PIN = 12; RIGHT_PIN = 13
-    SONAR_TRIG = 23; SONAR_ECHO = 24
     PERIMETER_CM = [(0, 0), (1000, 0), (1000, 200), (0, 200)]
     START_X_CM = 30; START_Y_CM = 100; START_HEADING_RAD = 0.0
     END_X_CM = 960; END_Y_CM = 100

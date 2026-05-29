@@ -88,7 +88,7 @@ def run_navigation(on_cycle=None):
     else:
         wall_map.init_known_walls(delta_theta=0.0)
 
-    perim = wall_map.to_perimeter()
+    perim = Perimeter(PERIMETER_CM)
     brain = Brain(perim, BRAIN_CFG, goal_x=END_X_CM, goal_y=END_Y_CM)
 
     ekf = EKFLocalizer(

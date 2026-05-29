@@ -1,44 +1,6 @@
 from navigation.brain import Brain, State, _AvoidPhase
 from navigation.perimeter import Perimeter
-from navigation.config import END_X_CM, END_Y_CM
-
-
-PERIMETER_CM = [
-    (0, 0),
-    (1000, 0),
-    (1000, 200),
-    (0, 200),
-]
-
-BRAIN_CFG = {
-    "PERIMETER_MARGIN_CM": 30,
-    "EXPLORE_SPEED": 0.4,
-    "TURN_SPEED": 0.5,
-    "AVOID_REVERSE_SPEED": 0.5,
-    "SCAN_SPEED": 0.4,
-    "AVOID_REVERSE_TIME": 0.3,
-    "AVOID_COOLDOWN_TIME": 0.5,
-    "AVOID_CLEAR_THRESHOLD_CM": 100,
-    "AVOID_MAX_SCAN_RAD": 1.57,
-    "AVOID_REACTIVE_KP": 0.003,
-    "AVOID_TARGET_DIST_CM": 30,
-    "AVOID_REACTIVE_FWD_SPEED": 0.3,
-    "AVOID_REACTIVE_TIMEOUT": 30.0,
-    "GOAL_X": END_X_CM,
-    "GOAL_Y": END_Y_CM,
-    "STUCK_THRESHOLD_COUNT": 3,
-    "STUCK_WINDOW_TIME": 10.0,
-    "STUCK_ESCAPE_TIME": 2.0,
-    "MAX_SPEED_CM_S": 100,
-    "WHEEL_BASE_CM": 30,
-    "HEADING_TOLERANCE_RAD": 0.26,
-    "EXPLORE_JITTER_TIME": 6.0,
-    "EXPLORE_JITTER_AMOUNT": 0.10,
-    "SONAR_FAIL_THRESHOLD": 5,
-    "SONAR_FAIL_SPEED_SCALE": 0.3,
-    "LOOP_HZ": 20,
-    "OBSTACLE_THRESHOLD_CM": 50,
-}
+from navigation.config import PERIMETER_CM, BRAIN_CFG, END_X_CM, END_Y_CM
 
 
 def _brain():

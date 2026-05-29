@@ -532,16 +532,6 @@ class SimEngine:
                 val = self._raycast(n["x"], n["y"], self.theta + math.pi / 4)
                 self.sonar_right = val if val is not None else 9999
 
-            if self.wall_map_visible and self.wall_map is not None:
-                sf = self.sonar_front
-                if sf is not None and 20 < sf < 900:
-                    idx, _ = self.wall_map.nearest_visible_wall(
-                        self.x, self.y, self.theta)
-                    if idx is not None:
-                        wall = self.wall_map.walls[idx]
-                        wall.refine(self.x, self.y, sf)
-                        self.wall_map.lock_wall(idx)
-
             ls, rs = self._autopilot(dt)
             self.left_speed = ls
             self.right_speed = rs

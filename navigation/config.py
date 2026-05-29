@@ -69,7 +69,6 @@ MAPPER_SONAR_SAMPLES = 3
 MAPPER_BLIND_ZONE_CM = 20
 MAPPER_BLIND_REVERSE_CM = 40
 MAPPER_TOGGLE = True
-MAPPER_VALIDATION_TOLERANCE_CM = 120  # how far off expected distances can the sweep be
 MAPPER_MIN_SPAN_DEG = 15              # minimum angular span for a wall plateau
 
 # --- EKF Localizer ---
@@ -79,5 +78,3 @@ EKF_SONAR_NOISE_CM2 = 4.0
 EKF_INNOVATION_GATE_CM = 80.0
 EKF_LOST_COUNT_MAX = 20
 EKF_X_CORRECTION_INTERVAL_S = 30.0
-EKF_LOCK_COVARIANCE = 25.0
-EKF_LOCK_MIN_OBS = 3  # bias toward side wall if no x-correction in this time

@@ -16,7 +16,8 @@ import time
 from navigation.wall_map import WallMap
 from navigation.ekf_localizer import EKFLocalizer
 from navigation.utils import heading_error, normalize_angle
-from navigation.config import START_X_CM, START_Y_CM, END_X_CM, END_Y_CM
+from navigation.perimeter import Perimeter
+from navigation.config import PERIMETER_CM, START_X_CM, START_Y_CM, END_X_CM, END_Y_CM
 
 
 # ---------------------------------------------------------------------------
@@ -168,7 +169,7 @@ def test_perimeter_always_correct():
     """Fixed-wall perimeter is always valid regardless of EKF drift."""
     wm = WallMap()
     wm.init_known_walls()
-    perim = wm.to_perimeter()
+    perim = Perimeter(PERIMETER_CM)
     ekf = EKFLocalizer(wm, (START_X_CM, START_Y_CM, 0))
     for _ in range(100):
         ekf.predict(0.4, 0.38, 0.05)

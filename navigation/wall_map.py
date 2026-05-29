@@ -11,12 +11,9 @@ import math
 from navigation.config import (
     PERIMETER_WIDTH_CM,
     PERIMETER_HEIGHT_CM,
-    PERIMETER_CM,
     START_X_CM,
     START_Y_CM,
     MAPPER_MIN_SPAN_DEG,
-    EKF_LOCK_COVARIANCE,
-    EKF_LOCK_MIN_OBS,
 )
 
 
@@ -111,18 +108,6 @@ class WallMap:
             "prefix": "WARNING!" if warning else "OK",
             "warning": warning,
         }
-
-    def lock_wall(self, idx, cov_threshold=None, min_obs=None):
-        if cov_threshold is None:
-            cov_threshold = EKF_LOCK_COVARIANCE
-        if min_obs is None:
-            min_obs = EKF_LOCK_MIN_OBS
-        wall = self.walls[idx]
-        if wall.covariance < cov_threshold or wall.obs_count >= min_obs:
-            wall.locked = True
-        locked_count = sum(1 for w in self.walls if w.locked)
-        if locked_count >= 4:
-            self.phase = "LOCKED"
 
     def _segment_plateaus(self, readings):
         n = len(readings)
@@ -235,10 +220,6 @@ class WallMap:
         if best_idx is None:
             return None, None
         return best_idx, best_dist
-
-    def to_perimeter(self):
-        from navigation.perimeter import Perimeter
-        return Perimeter(PERIMETER_CM)
 
     def to_dict(self):
         return {

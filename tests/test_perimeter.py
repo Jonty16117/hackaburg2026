@@ -1,13 +1,6 @@
 import math
 from navigation.perimeter import Perimeter
-
-
-PERIMETER_CM = [
-    (0, 0),
-    (1000, 0),
-    (1000, 200),
-    (0, 200),
-]
+from navigation.config import PERIMETER_CM
 
 
 def test_is_inside_center():
