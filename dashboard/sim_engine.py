@@ -681,7 +681,7 @@ class SimEngine:
         )
 
         wm = WallMap()
-        wm.init_from_minima(readings, duck_x=self.x, duck_y=self.y)
+        wm.init_from_sweep(readings, duck_x=self.x, duck_y=self.y)
         self.wall_map = wm
         self.sweep_readings = readings
         self.sweep_requested = False
