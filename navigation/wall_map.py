@@ -90,7 +90,11 @@ class WallMap:
             Wall(-1, 0, 0),
             Wall(0, -1, 0),
         ]
-        self.phase = "REFINING"
+        for w in self.walls:
+            w.locked = True
+            w.covariance = 0.0
+            w.obs_count = 0
+        self.phase = "LOCKED"
 
     def init_from_sweep(self, readings, duck_x=START_X_CM, duck_y=START_Y_CM):
         segments = self._segment_plateaus(readings)
