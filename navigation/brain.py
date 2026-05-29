@@ -4,6 +4,7 @@ import math
 import random
 import time as _time
 from enum import Enum, auto
+from navigation.utils import heading_error
 
 
 class State(Enum):
@@ -66,10 +67,6 @@ class Brain:
             self._avoid_history.append(now)
             cutoff = now - self.cfg["STUCK_WINDOW_TIME"]
             self._avoid_history = [t for t in self._avoid_history if t > cutoff]
-
-    def _heading_error(self, target, current):
-        error = target - current
-        return ((error + math.pi) % (2 * math.pi)) - math.pi
 
     def decide(self, sonar_cm, x, y, theta, dt):
         if sonar_cm is not None:
@@ -159,7 +156,7 @@ class Brain:
         # ── Phase 3: FACE_OPENING ──
         if self._avoid_phase == _AvoidPhase.FACE_OPENING:
             target = self._best_heading if self._best_heading is not None else theta
-            err = self._heading_error(target, theta)
+            err = heading_error(target, theta)
             if abs(err) < self.cfg["HEADING_TOLERANCE_RAD"]:
                 self._avoid_phase = _AvoidPhase.REACTIVE_DRIVE
                 self._avoid_phase_start = now
@@ -177,7 +174,7 @@ class Brain:
                 and sonar_cm > self.cfg["AVOID_CLEAR_THRESHOLD_CM"] * 2
                 and self.goal_x is not None and self.goal_y is not None):
             goal_th = math.atan2(self.goal_y - y, self.goal_x - x)
-            err = self._heading_error(goal_th, theta)
+            err = heading_error(goal_th, theta)
             if abs(err) < self.cfg["HEADING_TOLERANCE_RAD"] * 2:
                 self._transition(State.EXPLORE)
                 self._avoid_cooldown = self.cfg["AVOID_COOLDOWN_TIME"]
@@ -208,7 +205,7 @@ class Brain:
 
     def _handle_turn_to_center(self, x, y, theta):
         bearing = self.perimeter.bearing_to_center(x, y)
-        error = self._heading_error(bearing, theta)
+        error = heading_error(bearing, theta)
 
         if abs(error) < self.cfg["HEADING_TOLERANCE_RAD"]:
             if not self.perimeter.is_near_edge(

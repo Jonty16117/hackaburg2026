@@ -1,6 +1,7 @@
 """Dead reckoning: integrates motor speed commands into pose estimate."""
 
 import math
+from navigation.utils import normalize_angle
 
 
 class Odometry:
@@ -21,15 +22,7 @@ class Odometry:
         self.x += v * math.cos(self.theta) * dt
         self.y += v * math.sin(self.theta) * dt
         self.theta += omega * dt
-        self.theta = math.atan2(math.sin(self.theta), math.cos(self.theta))
+        self.theta = normalize_angle(self.theta)
 
     def position(self):
         return self.x, self.y, self.theta
-
-    def heading_deg(self):
-        return math.degrees(self.theta)
-
-    def reset(self, x=0.0, y=0.0, theta=0.0):
-        self.x = x
-        self.y = y
-        self.theta = theta

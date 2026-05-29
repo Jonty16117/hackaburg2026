@@ -70,8 +70,7 @@ class TestEmptyGrid:
 
 class TestObstacleBlocking:
     def test_obstacle_blocks_nearby_cells(self):
-        g = Grid(1000, 200, 10, [], 15)
-        g._build([{"x": 500, "y": 100, "r": 20}])
+        g = Grid(1000, 200, 10, [{"x": 500, "y": 100, "r": 20}], 15)
         # Cells within 35 = 15+20 should be blocked
         cx, cy = g.world_to_grid(500, 100)
         # Check four cells around center

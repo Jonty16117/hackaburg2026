@@ -1,23 +1,24 @@
-import math
+"""2D occupancy grid for JPS path planning."""
+
+
+def _ceil_div(a, b):
+    return (a + b - 1) // b
 
 
 class Grid:
     def __init__(self, width_cm, height_cm, cell_size, obstacles, duck_radius):
-        self.width_cm = width_cm
-        self.height_cm = height_cm
         self.cell_size = cell_size
-        self.duck_radius = duck_radius
         self.w = _ceil_div(width_cm, cell_size)
         self.h = _ceil_div(height_cm, cell_size)
         self.blocked = [[False] * self.w for _ in range(self.h)]
         if obstacles:
-            self._build(obstacles)
+            self._build(obstacles, duck_radius)
 
     def world_to_grid(self, x, y):
-        return (int(x / self.cell_size), int(y / self.cell_size))
+        return int(x / self.cell_size), int(y / self.cell_size)
 
     def grid_to_world(self, c, r):
-        return ((c + 0.5) * self.cell_size, (r + 0.5) * self.cell_size)
+        return (c + 0.5) * self.cell_size, (r + 0.5) * self.cell_size
 
     def is_blocked(self, c, r):
         if not (0 <= c < self.w and 0 <= r < self.h):
@@ -36,21 +37,13 @@ class Grid:
                 if self.in_bounds(nc, nr):
                     yield (nc, nr)
 
-    def _build(self, obstacles):
-        cell_centers = {}
+    def _build(self, obstacles, duck_radius):
         for r in range(self.h):
             for c in range(self.w):
                 cx, cy = self.grid_to_world(c, r)
-                blocked = False
-                d2_thresh = None
                 for o in obstacles:
                     d2 = (cx - o["x"]) ** 2 + (cy - o["y"]) ** 2
-                    thresh = self.duck_radius + o["r"]
+                    thresh = duck_radius + o["r"]
                     if d2 < thresh * thresh:
-                        blocked = True
+                        self.blocked[r][c] = True
                         break
-                self.blocked[r][c] = blocked
-
-
-def _ceil_div(a, b):
-    return (a + b - 1) // b

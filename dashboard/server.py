@@ -66,7 +66,6 @@ app.add_middleware(
 from dashboard.sim_engine import SimEngine
 
 _engine = SimEngine()
-_engine_lock = threading.Lock()
 
 # ---------------------------------------------------------------------------
 # Real-hardware state (used when mode == "real")
@@ -106,8 +105,7 @@ _continuous = True
 def _sim_loop():
     while True:
         if _continuous:
-            with _engine_lock:
-                _engine.step(0.05)
+            _engine.step(0.05)
         time.sleep(1.0 / 20)
 
 _t = threading.Thread(target=_sim_loop, daemon=True)
@@ -160,20 +158,7 @@ def _read_state():
     if _mode == "real":
         with _real_lock:
             return dict(_real_state)
-    with _engine_lock:
-        return _engine.get_state()
-
-
-def _get_config():
-    with _engine_lock:
-        return _engine.get_config()
-
-
-def _sim_cmd(method):
-    if _mode == "real":
-        raise HTTPException(400, "Cannot run sim commands in REAL mode")
-    with _engine_lock:
-        return method()
+    return _engine.get_state()
 
 
 def _ensure_sim():
@@ -216,29 +201,20 @@ async def index():
 
 @app.get("/config")
 async def get_config():
-    cfg = _get_config()
     return {
         "perimeter_cm": PERIMETER_CM,
         "brain_cfg": BRAIN_CFG,
         "start": {"x": START_X_CM, "y": START_Y_CM, "theta": START_HEADING_RAD},
         "end": {"x": END_X_CM, "y": END_Y_CM},
-        "sim": cfg,
+        "sim": _engine.get_config(),
     }
-
-
-@app.post("/push")
-async def push_telemetry(request: Request):
-    """Deprecated — kept for backward compatibility."""
-    await request.json()
-    return {"ok": True}
 
 
 @app.get("/live")
 async def get_live():
     state = _read_state()
     if _mode == "sim":
-        with _engine_lock:
-            debug = _engine.get_debug(50)
+        debug = _engine.get_debug(50)
         return {"latest": state, "frame_count": len(debug["frames"]), "buffer": debug["frames"]}
     return {"latest": state, "frame_count": 0, "buffer": []}
 
@@ -266,98 +242,64 @@ async def stream(request: Request):
 # WEB SOCKET
 # =========================================================================
 
-_COMMAND_HANDLERS = {}
-
-
-def _ws_handler(cmd_type):
-    def wrapper(fn):
-        _COMMAND_HANDLERS[cmd_type] = fn
-        return fn
-    return wrapper
-
-
-@_ws_handler("set_pose")
 async def _ws_set_pose(ws, data):
     _ensure_sim()
-    with _engine_lock:
-        return _engine.set_pose(data.get("x"), data.get("y"), data.get("theta"))
+    return _engine.set_pose(data.get("x"), data.get("y"), data.get("theta"))
 
 
-@_ws_handler("set_speeds")
 async def _ws_set_speeds(ws, data):
     _ensure_sim()
-    with _engine_lock:
-        return _engine.set_speeds(data.get("left", 0), data.get("right", 0))
+    return _engine.set_speeds(data.get("left", 0), data.get("right", 0))
 
 
-@_ws_handler("set_sonar")
 async def _ws_set_sonar(ws, data):
     _ensure_sim()
-    with _engine_lock:
-        return _engine.set_sonar_override(data.get("front"), data.get("left"), data.get("right"))
+    return _engine.set_sonar_override(data.get("front"), data.get("left"), data.get("right"))
 
 
-@_ws_handler("autopilot_start")
 async def _ws_autopilot_start(ws, data):
     _ensure_sim()
-    with _engine_lock:
-        return _engine.set_autopilot(True)
+    return _engine.set_autopilot(True)
 
 
-@_ws_handler("autopilot_stop")
 async def _ws_autopilot_stop(ws, data):
     _ensure_sim()
-    with _engine_lock:
-        return _engine.set_autopilot(False)
+    return _engine.set_autopilot(False)
 
 
-@_ws_handler("reset")
 async def _ws_reset(ws, data):
     _ensure_sim()
-    with _engine_lock:
-        return _engine.reset()
+    return _engine.reset()
 
 
-@_ws_handler("add_obstacle")
 async def _ws_add_obs(ws, data):
     _ensure_sim()
-    with _engine_lock:
-        oid = _engine.add_obstacle(data.get("x", 0), data.get("y", 0), data.get("r"))
-        return {"id": oid}
+    oid = _engine.add_obstacle(data.get("x", 0), data.get("y", 0), data.get("r"))
+    return {"id": oid}
 
 
-@_ws_handler("remove_obstacle")
 async def _ws_rm_obs(ws, data):
     _ensure_sim()
-    with _engine_lock:
-        ok = _engine.remove_obstacle(data.get("id"))
-        return {"ok": ok}
+    return {"ok": _engine.remove_obstacle(data.get("id"))}
 
 
-@_ws_handler("clear_obstacles")
 async def _ws_clear_obs(ws, data):
     _ensure_sim()
-    with _engine_lock:
-        _engine.clear_obstacles()
-        return {"ok": True}
+    _engine.clear_obstacles()
+    return {"ok": True}
 
 
-@_ws_handler("set_goal")
 async def _ws_set_goal(ws, data):
     _ensure_sim()
-    with _engine_lock:
-        return _engine.set_goal(data.get("start"), data.get("end"))
+    return _engine.set_goal(data.get("start"), data.get("end"))
 
 
-@_ws_handler("sim_step")
 async def _ws_sim_step(ws, data):
     _ensure_sim()
-    with _engine_lock:
-        _engine.step(data.get("dt", 0.05))
-        return _engine._build_state()
+    _engine.step(data.get("dt", 0.05))
+    return _engine.get_state()
 
 
-@_ws_handler("sim_toggle")
 async def _ws_sim_toggle(ws, data):
     global _continuous
     _ensure_sim()
@@ -365,12 +307,21 @@ async def _ws_sim_toggle(ws, data):
     return {"continuous": _continuous}
 
 
-@_ws_handler("set_config")
 async def _ws_set_config(ws, data):
     _ensure_sim()
-    with _engine_lock:
-        _engine.update_config(data)
-        return _engine._build_config()
+    _engine.update_config(data)
+    return _engine.get_config()
+
+
+_COMMANDS = {
+    "set_pose": _ws_set_pose, "set_speeds": _ws_set_speeds,
+    "set_sonar": _ws_set_sonar, "autopilot_start": _ws_autopilot_start,
+    "autopilot_stop": _ws_autopilot_stop, "reset": _ws_reset,
+    "add_obstacle": _ws_add_obs, "remove_obstacle": _ws_rm_obs,
+    "clear_obstacles": _ws_clear_obs, "set_goal": _ws_set_goal,
+    "sim_step": _ws_sim_step, "sim_toggle": _ws_sim_toggle,
+    "set_config": _ws_set_config,
+}
 
 
 @app.websocket("/ws")
@@ -387,7 +338,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 continue
 
             cmd = msg.get("type", "")
-            handler = _COMMAND_HANDLERS.get(cmd)
+            handler = _COMMANDS.get(cmd)
             if handler is None:
                 await websocket.send_json({"type": "error", "detail": f"unknown command: {cmd}"})
                 continue
@@ -418,8 +369,7 @@ def api_get_state():
 def api_get_state_history(limit: int = 50):
     if _mode == "real":
         return {"frames": []}
-    with _engine_lock:
-        return _engine.get_debug(limit)
+    return _engine.get_debug(limit)
 
 
 # =========================================================================
@@ -429,22 +379,19 @@ def api_get_state_history(limit: int = 50):
 @app.put("/api/duck/pose")
 def api_set_pose(data: dict):
     _ensure_sim()
-    with _engine_lock:
-        return _engine.set_pose(data.get("x"), data.get("y"), data.get("theta"))
+    return _engine.set_pose(data.get("x"), data.get("y"), data.get("theta"))
 
 
 @app.post("/api/duck/reset")
 def api_reset():
     _ensure_sim()
-    with _engine_lock:
-        return _engine.reset()
+    return _engine.reset()
 
 
 @app.put("/api/duck/speeds")
 def api_set_speeds(data: dict):
     _ensure_sim()
-    with _engine_lock:
-        return _engine.set_speeds(data.get("left", 0), data.get("right", 0))
+    return _engine.set_speeds(data.get("left", 0), data.get("right", 0))
 
 
 # =========================================================================
@@ -454,10 +401,7 @@ def api_set_speeds(data: dict):
 @app.put("/api/sensors/sonar")
 def api_set_sonar(data: dict):
     _ensure_sim()
-    with _engine_lock:
-        return _engine.set_sonar_override(
-            data.get("front"), data.get("left"), data.get("right"),
-        )
+    return _engine.set_sonar_override(data.get("front"), data.get("left"), data.get("right"))
 
 
 # =========================================================================
@@ -467,15 +411,13 @@ def api_set_sonar(data: dict):
 @app.post("/api/autopilot/start")
 def api_autopilot_start():
     _ensure_sim()
-    with _engine_lock:
-        return _engine.set_autopilot(True)
+    return _engine.set_autopilot(True)
 
 
 @app.post("/api/autopilot/stop")
 def api_autopilot_stop():
     _ensure_sim()
-    with _engine_lock:
-        return _engine.set_autopilot(False)
+    return _engine.set_autopilot(False)
 
 
 # =========================================================================
@@ -486,33 +428,29 @@ def api_autopilot_stop():
 def api_get_obstacles():
     if _mode == "real":
         return []
-    with _engine_lock:
-        return list(_engine.obstacles)
+    return _engine.get_obstacles()
 
 
 @app.post("/api/obstacles")
 def api_add_obstacle(data: dict):
     _ensure_sim()
-    with _engine_lock:
-        oid = _engine.add_obstacle(data.get("x", 0), data.get("y", 0), data.get("r"))
-        return {"id": oid}
+    oid = _engine.add_obstacle(data.get("x", 0), data.get("y", 0), data.get("r"))
+    return {"id": oid}
 
 
 @app.delete("/api/obstacles/{oid}")
 def api_remove_obstacle(oid: int):
     _ensure_sim()
-    with _engine_lock:
-        if not _engine.remove_obstacle(oid):
-            raise HTTPException(404, f"Obstacle {oid} not found")
-        return {"ok": True}
+    if not _engine.remove_obstacle(oid):
+        raise HTTPException(404, f"Obstacle {oid} not found")
+    return {"ok": True}
 
 
 @app.delete("/api/obstacles")
 def api_clear_obstacles():
     _ensure_sim()
-    with _engine_lock:
-        _engine.clear_obstacles()
-        return {"ok": True}
+    _engine.clear_obstacles()
+    return {"ok": True}
 
 
 # =========================================================================
@@ -521,15 +459,13 @@ def api_clear_obstacles():
 
 @app.get("/api/config")
 def api_get_config():
-    return _get_config()
+    return _engine.get_config()
 
 
 @app.put("/api/config")
 def api_update_config(data: dict):
     _ensure_sim()
-    with _engine_lock:
-        _engine.update_config(data)
-        return _engine._build_config()
+    return _engine.update_config(data)
 
 
 # =========================================================================
@@ -539,9 +475,7 @@ def api_update_config(data: dict):
 @app.post("/api/sim/step")
 def api_sim_step(data: dict = {}):
     _ensure_sim()
-    with _engine_lock:
-        _engine.step(data.get("dt", 0.05))
-        return _engine._build_state()
+    return _engine.step(data.get("dt", 0.05))
 
 
 @app.post("/api/sim/toggle")
@@ -555,16 +489,14 @@ def api_sim_toggle():
 @app.put("/api/sim/goal")
 def api_set_goal(data: dict):
     _ensure_sim()
-    with _engine_lock:
-        return _engine.set_goal(data.get("start"), data.get("end"))
+    return _engine.set_goal(data.get("start"), data.get("end"))
 
 
 @app.get("/api/sim/debug")
 def api_get_debug():
     if _mode == "real":
         return {"frames": []}
-    with _engine_lock:
-        return _engine.get_debug(500)
+    return _engine.get_debug(500)
 
 
 # =========================================================================
@@ -622,8 +554,7 @@ def api_apply_scenario(name: str):
     s = _scenarios.get(name)
     if s is None:
         raise HTTPException(404, f"Scenario '{name}' not found")
-    with _engine_lock:
-        return _engine.load_scenario(s)
+    return _engine.load_scenario(s)
 
 
 # =========================================================================

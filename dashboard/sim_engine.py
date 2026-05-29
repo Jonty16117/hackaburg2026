@@ -17,19 +17,7 @@ import threading
 from navigation.grid import Grid
 from navigation.jps import jps_search
 from navigation.path_follower import PathFollower
-
-
-def _clamp(v, lo, hi):
-    return lo if v < lo else hi if v > hi else v
-
-
-def _normalize_angle(a):
-    return math.atan2(math.sin(a), math.cos(a))
-
-
-def _heading_error(target, current):
-    e = target - current
-    return ((e + math.pi) % (2 * math.pi)) - math.pi
+from navigation.utils import clamp, normalize_angle, heading_error
 
 
 class SimEngine:
@@ -171,15 +159,15 @@ class SimEngine:
 
         nx = self.x + v * math.cos(self.theta) * dt
         ny = self.y + v * math.sin(self.theta) * dt
-        nx = _clamp(nx, self.DUCK_R, self.PW - self.DUCK_R)
-        ny = _clamp(ny, self.DUCK_R, self.PH - self.DUCK_R)
+        nx = clamp(nx, self.DUCK_R, self.PW - self.DUCK_R)
+        ny = clamp(ny, self.DUCK_R, self.PH - self.DUCK_R)
 
         if not self._obstacle_at(nx, ny):
             self.x = nx
             self.y = ny
 
         self.theta += w * dt
-        self.theta = _normalize_angle(self.theta)
+        self.theta = normalize_angle(self.theta)
 
     def _obstacle_at(self, x, y):
         for o in self.obstacles:
@@ -188,9 +176,6 @@ class SimEngine:
         return False
 
     # --- grid / path helpers ---
-
-    def _build_grid(self):
-        self._grid = Grid(self.PW, self.PH, 2, list(self.obstacles), self.DUCK_R)
 
     def _replan_path(self):
         margin = self.DUCK_R + 3
@@ -258,7 +243,7 @@ class SimEngine:
                 return -self.REVERSE_SPD, -self.REVERSE_SPD
 
         goal_th = math.atan2(self.end["y"] - self.y, self.end["x"] - self.x)
-        goal_err = _heading_error(goal_th, self.theta)
+        goal_err = heading_error(goal_th, self.theta)
 
         # Stuck detection
         if self.avoid_state == "none" and not self.perim_escaping:
@@ -306,13 +291,13 @@ class SimEngine:
             self.perim_cooldown = max(0, self.perim_cooldown - dt)
 
         if self.perim_escaping:
-            perr = _heading_error(self.escape_heading, self.theta)
+            perr = heading_error(self.escape_heading, self.theta)
             if abs(perr) < 0.08:
                 return self.max_speed, self.max_speed
             return -math.copysign(1, perr), math.copysign(1, perr)
 
         if self.perim_cooldown > 0:
-            cperr = _heading_error(self.escape_heading, self.theta)
+            cperr = heading_error(self.escape_heading, self.theta)
             if abs(cperr) < 0.08:
                 return self.max_speed, self.max_speed
             return -math.copysign(1, cperr), math.copysign(1, cperr)
@@ -344,7 +329,7 @@ class SimEngine:
                 return (-self.TURN_SP * self.scan_dir,
                         self.TURN_SP * self.scan_dir)
             if self.avoid_state == "face_best":
-                berr = _heading_error(self.scan_best_th, self.theta)
+                berr = heading_error(self.scan_best_th, self.theta)
                 if abs(berr) < self.HDG_TOL:
                     self.avoid_state = "cooldown"
                     self.avoid_timer = 0.0
@@ -525,6 +510,10 @@ class SimEngine:
         with self._lock:
             return self._build_config()
 
+    def get_obstacles(self):
+        with self._lock:
+            return list(self.obstacles)
+
     def _clear_path(self):
         self._path = []
         self._path_follower = None
@@ -559,8 +548,8 @@ class SimEngine:
 
     def set_speeds(self, left, right):
         with self._lock:
-            self.left_speed = _clamp(float(left), -1, 1)
-            self.right_speed = _clamp(float(right), -1, 1)
+            self.left_speed = clamp(float(left), -1, 1)
+            self.right_speed = clamp(float(right), -1, 1)
             self.autopilot_on = False
             self.arrived = False
             return self._build_state()
@@ -576,18 +565,8 @@ class SimEngine:
 
     def set_sonar_override(self, front=None, left=None, right=None):
         with self._lock:
-            if front is not None:
-                self._sonar_override["front"] = float(front) if front is not None else None
-            else:
-                self._sonar_override["front"] = None
-            if left is not None:
-                self._sonar_override["left"] = float(left)
-            else:
-                self._sonar_override["left"] = None
-            if right is not None:
-                self._sonar_override["right"] = float(right)
-            else:
-                self._sonar_override["right"] = None
+            for key, val in (("front", front), ("left", left), ("right", right)):
+                self._sonar_override[key] = float(val) if val is not None else None
             return self._build_state()
 
     def add_obstacle(self, x, y, r=None):

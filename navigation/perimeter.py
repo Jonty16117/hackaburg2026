@@ -67,5 +67,4 @@ class Perimeter:
         dy = self.centroid[1] - y
         return math.atan2(dy, dx)
 
-    def bounds(self):
-        return self.min_x, self.max_x, self.min_y, self.max_y
+
