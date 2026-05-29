@@ -309,6 +309,12 @@ async def _ws_set_config(ws, data):
     return _engine.get_config()
 
 
+async def _ws_set_label(ws, data):
+    _ensure_sim()
+    _engine.scenario_label = data.get("label", "")
+    return {"scenario_label": _engine.scenario_label}
+
+
 _COMMANDS = {
     "set_pose": _ws_set_pose, "set_speeds": _ws_set_speeds,
     "set_sonar": _ws_set_sonar, "autopilot_start": _ws_autopilot_start,
@@ -316,7 +322,7 @@ _COMMANDS = {
     "add_obstacle": _ws_add_obs, "remove_obstacle": _ws_rm_obs,
     "clear_obstacles": _ws_clear_obs, "set_goal": _ws_set_goal,
     "sim_step": _ws_sim_step, "sim_toggle": _ws_sim_toggle,
-    "set_config": _ws_set_config,
+    "set_config": _ws_set_config, "set_label": _ws_set_label,
     "walls_sweep": lambda ws, d: _engine.request_sweep(),
     "walls_hide": lambda ws, d: _engine.hide_walls(),
     "walls_show": lambda ws, d: _engine.set_walls_visible(True),
@@ -478,10 +484,24 @@ def api_sim_toggle():
     return {"continuous": _continuous}
 
 
+@app.post("/api/sim/get_continuous")
+def api_get_continuous():
+    global _continuous
+    _ensure_sim()
+    return {"continuous": _continuous}
+
+
 @app.put("/api/sim/goal")
 def api_set_goal(data: dict):
     _ensure_sim()
     return _engine.set_goal(data.get("start"), data.get("end"))
+
+
+@app.put("/api/sim/label")
+def api_set_label(data: dict):
+    _ensure_sim()
+    _engine.scenario_label = data.get("label", "")
+    return {"scenario_label": _engine.scenario_label}
 
 
 # =========================================================================
