@@ -88,6 +88,7 @@ class SimEngine:
         self._turn_target_h = 0.0
         self._turn_rescored = False
         self._avoid_cycles = 0          # rapid DRIVE→REVERSE count
+        self._stuck_positions = []     # (x, y) of recent stuck positions
         self._reactive_start_x = 0.0
         self._reactive_start_y = 0.0
         self._mline_hit_x = 0.0
@@ -307,6 +308,10 @@ class SimEngine:
                         clearance = min(rng, 200) / 200.0
                         goal_align = (math.cos(heading_error(goal_th, test_h)) + 1) / 2
                         score = clearance * 0.4 + goal_align * 0.6
+                        for sx, sy in self._stuck_positions[-5:]:
+                            if abs(heading_error(test_h, math.atan2(sy - self.y, sx - self.x))) < 0.5:
+                                score *= 0.35
+                                break
                         if score > best_score:
                             best_score = score; best_h = test_h
                     self._turn_target_h = best_h
@@ -368,7 +373,9 @@ class SimEngine:
                             self.avoid_state = "none"
                             self.avoid_timer = 0.0
                             self._avoid_cooldown = self.AVOID_COOLDOWN_S
-                            self._avoid_cycles = 0
+                            self._stuck_positions.append((self.x, self.y))
+                            if len(self._stuck_positions) > 5:
+                                self._stuck_positions.pop(0)
                             return self.max_speed, self.max_speed
                 # Smart fallback: past hit point + front clear
                 if (self.avoid_timer >= self.AVOID_REACTIVE_MIN_TIME
@@ -377,13 +384,17 @@ class SimEngine:
                     self.avoid_state = "none"
                     self.avoid_timer = 0.0
                     self._avoid_cooldown = self.AVOID_COOLDOWN_S
-                    self._avoid_cycles = 0
+                    self._stuck_positions.append((self.x, self.y))
+                    if len(self._stuck_positions) > 5:
+                        self._stuck_positions.pop(0)
                     return self.max_speed, self.max_speed
                 # Timeout
                 if self.avoid_timer >= self.AVOID_REACTIVE_TIMEOUT:
                     self.avoid_state = "none"
                     self.avoid_timer = 0.0
-                    self._avoid_cycles = 0
+                    self._stuck_positions.append((self.x, self.y))
+                    if len(self._stuck_positions) > 5:
+                        self._stuck_positions.pop(0)
                     return self.max_speed, self.max_speed
                 # Stuck detection: dual-threshold
                 self._drive_flip_time += dt
