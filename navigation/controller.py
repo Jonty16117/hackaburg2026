@@ -13,7 +13,7 @@ import time
 from navigation.config import (
     LEFT_PIN, RIGHT_PIN, SONAR_TRIG, SONAR_ECHO,
     PERIMETER_CM, START_X_CM, START_Y_CM, START_HEADING_RAD,
-    BRAIN_CFG,
+    END_X_CM, END_Y_CM, BRAIN_CFG,
 )
 from navigation.odometry import Odometry
 from navigation.perimeter import Perimeter
@@ -22,12 +22,9 @@ from navigation.brain import Brain, State, _AvoidPhase
 
 AVOID_PHASE_LABELS = {
     _AvoidPhase.REVERSE:         "AVOID:REV",
-    _AvoidPhase.SCAN_LEFT:       "AVOID:SCAN_L",
-    _AvoidPhase.SCAN_LEFT_READ:  "AVOID:READ_L",
-    _AvoidPhase.SCAN_RIGHT:      "AVOID:SCAN_R",
-    _AvoidPhase.SCAN_RIGHT_READ: "AVOID:READ_R",
-    _AvoidPhase.COMPLETE_TURN:   "AVOID:TURN",
-    _AvoidPhase.DONE:            "AVOID:DONE",
+    _AvoidPhase.TURN_AND_SENSE:  "AVOID:SCAN",
+    _AvoidPhase.FACE_OPENING:    "AVOID:FACE",
+    _AvoidPhase.REACTIVE_DRIVE:  "AVOID:DRIVE",
 }
 
 
@@ -56,7 +53,7 @@ def run_navigation(on_cycle=None):
     odom = Odometry(START_X_CM, START_Y_CM, START_HEADING_RAD,
                     BRAIN_CFG["WHEEL_BASE_CM"], BRAIN_CFG["MAX_SPEED_CM_S"])
     perim = Perimeter(PERIMETER_CM)
-    brain = Brain(perim, BRAIN_CFG)
+    brain = Brain(perim, BRAIN_CFG, goal_x=END_X_CM, goal_y=END_Y_CM)
 
     ll, lr = 0.0, 0.0
     lt = time.time()
