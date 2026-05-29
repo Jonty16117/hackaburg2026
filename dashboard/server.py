@@ -591,7 +591,7 @@ def api_save_scenario(data: dict):
     scenario = {
         "name": name,
         "config": data.get("config"),
-        "obstacles": data.get("obstacles"),
+        "obstacles": data.get("obstacles", []),
         "start": data.get("start"),
         "end": data.get("end"),
         "created_at": datetime.utcnow().isoformat(),

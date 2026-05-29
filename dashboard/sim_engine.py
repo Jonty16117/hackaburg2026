@@ -14,6 +14,10 @@ import math
 import time
 import threading
 
+from navigation.grid import Grid
+from navigation.jps import jps_search
+from navigation.path_follower import PathFollower
+
 
 def _clamp(v, lo, hi):
     return lo if v < lo else hi if v > hi else v
@@ -60,6 +64,7 @@ class SimEngine:
         self.theta = 0.0
         self.left_speed = 0.0
         self.right_speed = 0.0
+        self._blocked_count = 0
 
         # --- sensors ---
         self.sonar_front = None
@@ -78,16 +83,25 @@ class SimEngine:
         self.arrived = False
         self.avoid_state = "none"       # none | reverse | scan | face_best | cooldown
         self.avoid_timer = 0.0
-        self.pos_history = []            # [{x, y, t}]
+        self.pos_history = []
         self.scan_swept = 0.0
         self.scan_best_d = 0.0
         self.scan_best_th = 0.0
+        self.scan_debounce = 0.0
+        self.scan_dir = 1
         self.perim_escaping = False
         self.escape_heading = 0.0
         self.perim_cooldown = 0.0
 
-        # --- debug ---
+        # --- JPS path following ---
+        self._grid = None
+        self._path = []
+        self._path_follower = None
+        self._replan_count = 0
+
+        # --- debug & sim time ---
         self.frame = 0
+        self.sim_time = 0.0
         self.trail = []   # last 40 pos
         self.debug_buf = []  # last 500 frames
         self._start_time = time.time()
@@ -115,7 +129,9 @@ class SimEngine:
                 return
             t = ((ox - x3) * (y3 - y4) - (oy - y3) * (x3 - x4)) / d
             u = -((dx * (oy - y3) - dy * (ox - x3))) / d
-            if t >= 0 and 0 <= u <= 1:
+            # Note: the formula computes t = -t_standard (denominator sign inversion)
+            # but u = u_standard (correct). So check t <= 0 for "in front" and 0 <= u <= 1 for "within segment".
+            if t <= 0 and 0 <= u <= 1:
                 dist = math.hypot(ox + dx * t - ox, oy + dy * t - oy)
                 if dist < best:
                     best = dist
@@ -171,37 +187,96 @@ class SimEngine:
                 return True
         return False
 
-    # --- autopilot FSM (port of JS autoPilot) ---
+    # --- grid / path helpers ---
+
+    def _build_grid(self):
+        self._grid = Grid(self.PW, self.PH, 2, list(self.obstacles), self.DUCK_R)
+
+    def _replan_path(self):
+        margin = self.DUCK_R + 3
+        self._grid = Grid(self.PW, self.PH, 2, list(self.obstacles), margin)
+        sp = (self.x, self.y)
+        ep = (self.end["x"], self.end["y"])
+        eg = self._grid.world_to_grid(*ep)
+        if self._grid.is_blocked(eg[0], eg[1]):
+            for r in range(1, 30):
+                for dx in range(-r, r + 1):
+                    for dy in range(-r, r + 1):
+                        nx, ny = eg[0] + dx, eg[1] + dy
+                        if self._grid.in_bounds(nx, ny) and not self._grid.is_blocked(nx, ny):
+                            ep = self._grid.grid_to_world(nx, ny)
+                            break
+                    else:
+                        continue
+                    break
+                else:
+                    continue
+                break
+        path = jps_search(self._grid, sp, ep)
+        if path:
+            self._path = path
+            self._path_follower = PathFollower(path, self.max_speed, self.HDG_TOL,
+                                               arrival_dist=self.ARRIVAL)
+            self._replan_count += 1
+        else:
+            self._path = []
+            self._path_follower = None
+
+    # --- autopilot FSM (port of JS autoPilot) + JPS integration ---
     def _autopilot(self, dt):
         dist_end = math.hypot(self.x - self.end["x"], self.y - self.end["y"])
         if dist_end < self.ARRIVAL:
             self.arrived = True
+            self._path = []
+            self._path_follower = None
             return 0.0, 0.0
         if self.arrived:
             self.arrived = False
 
-        goal_th = math.atan2(self.end["y"] - self.y, self.end["x"] - self.x)
-        goal_err = _heading_error(goal_th, self.theta)
         f = self.sonar_front if self.sonar_front is not None else 9999
         obs_dist = self.OBST_TH + self.DUCK_R
 
-        now = time.time()
+        # --- JPS path following ---
+        if not self._path and self.avoid_state == "none" and not self.perim_escaping:
+            self._replan_path()
 
-        # Stuck detection (position history)
-        if not self.perim_escaping:
-            self.pos_history.append({"x": self.x, "y": self.y, "t": now})
-            cutoff = now - self.STUCK_WINDOW_S
-            self.pos_history = [p for p in self.pos_history if p["t"] > cutoff]
+        if self._path and self._path_follower and not self.perim_escaping:
+            if self.avoid_state == "none":
+                ls, rs = self._path_follower.compute_speeds(self.x, self.y, self.theta)
+                if self._path_follower.arrived:
+                    self.arrived = True
+                    self._path = []
+                    self._path_follower = None
+                    return 0.0, 0.0
+                return ls, rs
+            elif self.avoid_state == "reverse":
+                self.avoid_timer += dt
+                if self.avoid_timer >= self.AVOID_REVERSE_S:
+                    self.avoid_state = "none"
+                    self.avoid_timer = 0.0
+                    self._replan_path()
+                return -self.REVERSE_SPD, -self.REVERSE_SPD
+
+        goal_th = math.atan2(self.end["y"] - self.y, self.end["x"] - self.x)
+        goal_err = _heading_error(goal_th, self.theta)
+
+        # Stuck detection
+        if self.avoid_state == "none" and not self.perim_escaping:
+            self.pos_history.append({"x": self.x, "y": self.y, "t": self.sim_time})
+            cutoff = self.sim_time - self.STUCK_WINDOW_S
+            self.pos_history = [p for p in self.pos_history if p["t"] >= cutoff]
             stuck = False
-            if len(self.pos_history) >= 2:
-                p0 = self.pos_history[0]
-                pn = self.pos_history[-1]
-                if (pn["t"] - p0["t"] >= self.STUCK_WINDOW_S
-                        and math.hypot(pn["x"] - p0["x"], pn["y"] - p0["y"]) < self.STUCK_DIST_CM):
+            if len(self.pos_history) >= 10:
+                mid = len(self.pos_history) // 2
+                p_mid = self.pos_history[mid]
+                p_n = self.pos_history[-1]
+                if (p_n["t"] - p_mid["t"] >= self.STUCK_WINDOW_S / 2
+                        and math.hypot(p_n["x"] - p_mid["x"], p_n["y"] - p_mid["y"]) < self.STUCK_DIST_CM):
                     stuck = True
             if stuck:
                 self.avoid_state = "reverse"
                 self.avoid_timer = 0.0
+                self.pos_history = []
                 return -self.REVERSE_SPD, -self.REVERSE_SPD
 
         # Perimeter escape detection
@@ -230,7 +305,6 @@ class SimEngine:
         if self.perim_cooldown > 0:
             self.perim_cooldown = max(0, self.perim_cooldown - dt)
 
-        # Perimeter escaping behaviour
         if self.perim_escaping:
             perr = _heading_error(self.escape_heading, self.theta)
             if abs(perr) < 0.08:
@@ -243,10 +317,9 @@ class SimEngine:
                 return self.max_speed, self.max_speed
             return -math.copysign(1, cperr), math.copysign(1, cperr)
 
-        # Avoid FSM
+        # Avoid FSM (fallback when no JPS path)
         if self.avoid_state != "none":
             self.avoid_timer += dt
-
             if self.avoid_state == "reverse":
                 if self.avoid_timer >= self.AVOID_REVERSE_S:
                     self.avoid_state = "scan"
@@ -254,27 +327,31 @@ class SimEngine:
                     self.scan_swept = 0.0
                     self.scan_best_d = 0.0
                     self.scan_best_th = self.theta
+                    self.scan_debounce = 0.3
+                    self.scan_dir = -self.scan_dir
                 else:
                     return -self.REVERSE_SPD, -self.REVERSE_SPD
-
             if self.avoid_state == "scan":
-                self.scan_swept += self.TURN_SP * self.MAX_SPD / self.WB * dt
-                if f > self.scan_best_d:
+                self.scan_swept += 2 * self.TURN_SP * self.MAX_SPD / self.WB * dt
+                if self.scan_debounce > 0:
+                    self.scan_debounce -= dt
+                elif f > self.scan_best_d:
                     self.scan_best_d = f
                     self.scan_best_th = self.theta
-                if self.scan_swept >= math.pi or (self.scan_swept >= math.pi / 2 and self.scan_best_d > 200):
+                if self.scan_swept >= math.pi / 2:
                     self.avoid_state = "face_best"
                     self.avoid_timer = 0.0
-                return -self.TURN_SP, self.TURN_SP
-
+                return (-self.TURN_SP * self.scan_dir,
+                        self.TURN_SP * self.scan_dir)
             if self.avoid_state == "face_best":
                 berr = _heading_error(self.scan_best_th, self.theta)
-                if abs(berr) < 0.08:
+                if abs(berr) < self.HDG_TOL:
                     self.avoid_state = "cooldown"
                     self.avoid_timer = 0.0
                 else:
-                    return -math.copysign(1, berr), math.copysign(1, berr)
-
+                    turn_dir = math.copysign(1, berr)
+                    rot = min(1.0, abs(berr) / 0.5) * self.TURN_SP
+                    return -rot * turn_dir, rot * turn_dir
             if self.avoid_state == "cooldown":
                 if self.avoid_timer >= self.AVOID_COOLDOWN_S:
                     self.avoid_state = "none"
@@ -282,13 +359,12 @@ class SimEngine:
                 else:
                     return self.max_speed * 0.5, self.max_speed * 0.5
 
-        # Trigger avoid on obstacle
         if self.avoid_state == "none" and f > 0 and f < obs_dist:
             self.avoid_state = "reverse"
             self.avoid_timer = 0.0
+            self.pos_history = []
             return -self.REVERSE_SPD, -self.REVERSE_SPD
 
-        # Goal-seeking proportional heading control
         if abs(goal_err) < self.HDG_TOL:
             return self.max_speed, self.max_speed
 
@@ -311,6 +387,7 @@ class SimEngine:
             return self._build_state()
 
     def _step_impl(self, dt):
+        self.sim_time += dt
         if self.autopilot_on:
             n = self._nose_position()
             if self._sonar_override["front"] is not None:
@@ -335,7 +412,20 @@ class SimEngine:
             self.left_speed = ls
             self.right_speed = rs
 
+        prev_x, prev_y = self.x, self.y
         self._step_physics(dt)
+        # Bump detection: if duck tried to move forward but was blocked by obstacle
+        if (self.autopilot_on and self.avoid_state == "none"
+                and self.x == prev_x and self.y == prev_y
+                and self.left_speed > 0 and self.right_speed > 0):
+            self._blocked_count += 1
+            if self._blocked_count > 3:  # 4+ consecutive blocks = stuck
+                self.avoid_state = "reverse"
+                self.avoid_timer = 0.0
+                self.pos_history = []
+                self._blocked_count = 0
+        else:
+            self._blocked_count = 0
 
         self.trail.append({"x": self.x, "y": self.y})
         if len(self.trail) > 40:
@@ -401,6 +491,9 @@ class SimEngine:
             "start": dict(self.start),
             "end": dict(self.end),
             "trail": list(self.trail),
+            "jps_path": [(round(x, 1), round(y, 1)) for x, y in self._path],
+            "jps_path_len": len(self._path),
+            "replan_count": self._replan_count,
             "config": self._build_config(),
         }
 
@@ -432,6 +525,11 @@ class SimEngine:
         with self._lock:
             return self._build_config()
 
+    def _clear_path(self):
+        self._path = []
+        self._path_follower = None
+        self._grid = None
+
     def set_pose(self, x, y, theta=None):
         with self._lock:
             self.x = float(x)
@@ -448,10 +546,12 @@ class SimEngine:
             self.scan_swept = 0.0
             self.scan_best_d = 0.0
             self.scan_best_th = 0.0
+            self.scan_debounce = 0.0
             self.perim_escaping = False
             self.perim_cooldown = 0.0
             self.left_speed = 0.0
             self.right_speed = 0.0
+            self._clear_path()
             return self._build_state()
 
     def reset(self):
@@ -497,6 +597,7 @@ class SimEngine:
             if r is None:
                 r = 10.0
             self.obstacles.append({"id": oid, "x": float(x), "y": float(y), "r": float(r)})
+            self._clear_path()
             return oid
 
     def remove_obstacle(self, oid):
@@ -504,12 +605,14 @@ class SimEngine:
             for i, o in enumerate(self.obstacles):
                 if o["id"] == oid:
                     self.obstacles.pop(i)
+                    self._clear_path()
                     return True
             return False
 
     def clear_obstacles(self):
         with self._lock:
             self.obstacles.clear()
+            self._clear_path()
 
     def set_goal(self, start=None, end=None):
         with self._lock:
@@ -523,9 +626,17 @@ class SimEngine:
                 self.avoid_state = "none"
                 self.avoid_timer = 0.0
                 self.pos_history = []
-            if end is not None:
-                self.end["x"] = float(end["x"])
-                self.end["y"] = float(end["y"])
+                self._clear_path()
+        if end is not None:
+            self.end["x"] = float(end["x"])
+            self.end["y"] = float(end["y"])
+            self.arrived = False
+            self.avoid_state = "none"
+            self.avoid_timer = 0.0
+            self.perim_escaping = False
+            self.perim_cooldown = 0.0
+            self.pos_history = []
+            self._clear_path()
             return self._build_state()
 
     def update_config(self, data):
@@ -541,12 +652,12 @@ class SimEngine:
                 for k, v in data["config"].items():
                     if hasattr(self, k):
                         setattr(self, k, float(v) if isinstance(v, (int, float)) else v)
-            if "obstacles" in data:
-                self.obstacles.clear()
-                for o in data["obstacles"]:
-                    oid = self._next_obs_id
-                    self._next_obs_id += 1
-                    self.obstacles.append({"id": oid, "x": float(o["x"]), "y": float(o["y"]), "r": float(o.get("r", 10))})
+            obs = data.get("obstacles") or []
+            self.obstacles.clear()
+            for o in obs:
+                oid = self._next_obs_id
+                self._next_obs_id += 1
+                self.obstacles.append({"id": oid, "x": float(o["x"]), "y": float(o["y"]), "r": float(o.get("r", 10))})
             st = data.get("start")
             en = data.get("end")
             if st:
@@ -563,8 +674,17 @@ class SimEngine:
             self.avoid_state = "none"
             self.avoid_timer = 0.0
             self.pos_history = []
+            self._clear_path()
+            self.scan_swept = 0.0
+            self.scan_best_d = 0.0
+            self.scan_best_th = 0.0
+            self.scan_debounce = 0.0
+            self.perim_escaping = False
+            self.escape_heading = 0.0
+            self.perim_cooldown = 0.0
             self.left_speed = 0.0
             self.right_speed = 0.0
+            self._sonar_override = {"front": None, "left": None, "right": None}
             self.trail.clear()
             self.debug_buf.clear()
             self.frame = 0
