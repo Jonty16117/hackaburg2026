@@ -101,6 +101,7 @@ class SimEngine:
         self.perim_cooldown = 0.0
         self._perim_timer = 0.0
         self._drive_min_any = 9999  # min of all 3 sensors during current DRIVE
+        self._last_stuck_time = 0.0  # sim_time of most recent stuck increment
 
         # --- debug & sim time ---
         self.frame = 0
@@ -216,7 +217,7 @@ class SimEngine:
             s = min(rng, 200) / 200.0 * 0.4 + (math.cos(heading_error(goal_th, th)) + 1) / 2 * 0.6
             for sx, sy in self._stuck_positions[-5:]:
                 if abs(heading_error(th, math.atan2(sy - self.y, sx - self.x))) < 0.5:
-                    s *= 0.35
+                    s *= 0.2
                     break
             if s > best_score:
                 best_score = s
@@ -231,6 +232,10 @@ class SimEngine:
             return 0.0, 0.0
         if self.arrived:
             self.arrived = False
+
+        if self._avoid_cycles > 0 and self.sim_time - self._last_stuck_time > 5.0:
+            self._avoid_cycles = max(0, self._avoid_cycles - 1)
+            self._last_stuck_time = self.sim_time
 
         f = self.sonar_front if self.sonar_front is not None else 9999
         obs_dist = self.OBST_TH + self.DUCK_R
@@ -400,11 +405,13 @@ class SimEngine:
                     self.y - self._reactive_start_y)
                 if self.avoid_timer > 0.5 and traveled < 3.0:
                     self._avoid_cycles += 1
+                    self._last_stuck_time = self.sim_time
                     self.avoid_state = "reverse"
                     self.avoid_timer = 0.0
                     return -self.REVERSE_SPD, -self.REVERSE_SPD
                 if self.avoid_timer > 2.0 and traveled < 5.0:
                     self._avoid_cycles += 1
+                    self._last_stuck_time = self.sim_time
                     self.avoid_state = "reverse"
                     self.avoid_timer = 0.0
                     return -self.REVERSE_SPD, -self.REVERSE_SPD
@@ -412,6 +419,7 @@ class SimEngine:
                 if self._drive_flip_time > 1.0:
                     if self._drive_steer_flips >= 4:
                         self._avoid_cycles += 1
+                        self._last_stuck_time = self.sim_time
                         self.avoid_state = "reverse"
                         self.avoid_timer = 0.0
                         return -self.REVERSE_SPD, -self.REVERSE_SPD
@@ -440,6 +448,7 @@ class SimEngine:
                 # Surrounded
                 if f > 0 and f < 20 and min(sl, sr) < 15:
                     self._avoid_cycles += 1
+                    self._last_stuck_time = self.sim_time
                     self.avoid_state = "reverse"
                     self.avoid_timer = 0.0
                     return -self.REVERSE_SPD, -self.REVERSE_SPD
