@@ -14,9 +14,6 @@ import math
 import time
 import threading
 
-from navigation.grid import Grid
-from navigation.jps import jps_search
-from navigation.path_follower import PathFollower
 from navigation.utils import clamp, normalize_angle, heading_error
 
 
@@ -80,12 +77,6 @@ class SimEngine:
         self.perim_escaping = False
         self.escape_heading = 0.0
         self.perim_cooldown = 0.0
-
-        # --- JPS path following ---
-        self._grid = None
-        self._path = []
-        self._path_follower = None
-        self._replan_count = 0
 
         # --- debug & sim time ---
         self.frame = 0
@@ -175,72 +166,17 @@ class SimEngine:
                 return True
         return False
 
-    # --- grid / path helpers ---
-
-    def _replan_path(self):
-        margin = self.DUCK_R + 3
-        self._grid = Grid(self.PW, self.PH, 2, list(self.obstacles), margin)
-        sp = (self.x, self.y)
-        ep = (self.end["x"], self.end["y"])
-        eg = self._grid.world_to_grid(*ep)
-        if self._grid.is_blocked(eg[0], eg[1]):
-            for r in range(1, 30):
-                for dx in range(-r, r + 1):
-                    for dy in range(-r, r + 1):
-                        nx, ny = eg[0] + dx, eg[1] + dy
-                        if self._grid.in_bounds(nx, ny) and not self._grid.is_blocked(nx, ny):
-                            ep = self._grid.grid_to_world(nx, ny)
-                            break
-                    else:
-                        continue
-                    break
-                else:
-                    continue
-                break
-        path = jps_search(self._grid, sp, ep)
-        if path:
-            self._path = path
-            self._path_follower = PathFollower(path, self.max_speed, self.HDG_TOL,
-                                               arrival_dist=self.ARRIVAL)
-            self._replan_count += 1
-        else:
-            self._path = []
-            self._path_follower = None
-
-    # --- autopilot FSM (port of JS autoPilot) + JPS integration ---
+    # --- autopilot FSM (port of JS autoPilot) ---
     def _autopilot(self, dt):
         dist_end = math.hypot(self.x - self.end["x"], self.y - self.end["y"])
         if dist_end < self.ARRIVAL:
             self.arrived = True
-            self._path = []
-            self._path_follower = None
             return 0.0, 0.0
         if self.arrived:
             self.arrived = False
 
         f = self.sonar_front if self.sonar_front is not None else 9999
         obs_dist = self.OBST_TH + self.DUCK_R
-
-        # --- JPS path following ---
-        if not self._path and self.avoid_state == "none" and not self.perim_escaping:
-            self._replan_path()
-
-        if self._path and self._path_follower and not self.perim_escaping:
-            if self.avoid_state == "none":
-                ls, rs = self._path_follower.compute_speeds(self.x, self.y, self.theta)
-                if self._path_follower.arrived:
-                    self.arrived = True
-                    self._path = []
-                    self._path_follower = None
-                    return 0.0, 0.0
-                return ls, rs
-            elif self.avoid_state == "reverse":
-                self.avoid_timer += dt
-                if self.avoid_timer >= self.AVOID_REVERSE_S:
-                    self.avoid_state = "none"
-                    self.avoid_timer = 0.0
-                    self._replan_path()
-                return -self.REVERSE_SPD, -self.REVERSE_SPD
 
         goal_th = math.atan2(self.end["y"] - self.y, self.end["x"] - self.x)
         goal_err = heading_error(goal_th, self.theta)
@@ -302,7 +238,7 @@ class SimEngine:
                 return self.max_speed, self.max_speed
             return -math.copysign(1, cperr), math.copysign(1, cperr)
 
-        # Avoid FSM (fallback when no JPS path)
+        # Avoid FSM
         if self.avoid_state != "none":
             self.avoid_timer += dt
             if self.avoid_state == "reverse":
@@ -476,9 +412,6 @@ class SimEngine:
             "start": dict(self.start),
             "end": dict(self.end),
             "trail": list(self.trail),
-            "jps_path": [(round(x, 1), round(y, 1)) for x, y in self._path],
-            "jps_path_len": len(self._path),
-            "replan_count": self._replan_count,
             "config": self._build_config(),
         }
 
@@ -514,11 +447,6 @@ class SimEngine:
         with self._lock:
             return list(self.obstacles)
 
-    def _clear_path(self):
-        self._path = []
-        self._path_follower = None
-        self._grid = None
-
     def set_pose(self, x, y, theta=None):
         with self._lock:
             self.x = float(x)
@@ -540,7 +468,6 @@ class SimEngine:
             self.perim_cooldown = 0.0
             self.left_speed = 0.0
             self.right_speed = 0.0
-            self._clear_path()
             return self._build_state()
 
     def reset(self):
@@ -576,7 +503,6 @@ class SimEngine:
             if r is None:
                 r = 10.0
             self.obstacles.append({"id": oid, "x": float(x), "y": float(y), "r": float(r)})
-            self._clear_path()
             return oid
 
     def remove_obstacle(self, oid):
@@ -584,14 +510,12 @@ class SimEngine:
             for i, o in enumerate(self.obstacles):
                 if o["id"] == oid:
                     self.obstacles.pop(i)
-                    self._clear_path()
                     return True
             return False
 
     def clear_obstacles(self):
         with self._lock:
             self.obstacles.clear()
-            self._clear_path()
 
     def set_goal(self, start=None, end=None):
         with self._lock:
@@ -605,7 +529,6 @@ class SimEngine:
                 self.avoid_state = "none"
                 self.avoid_timer = 0.0
                 self.pos_history = []
-                self._clear_path()
         if end is not None:
             self.end["x"] = float(end["x"])
             self.end["y"] = float(end["y"])
@@ -615,7 +538,6 @@ class SimEngine:
             self.perim_escaping = False
             self.perim_cooldown = 0.0
             self.pos_history = []
-            self._clear_path()
             return self._build_state()
 
     def update_config(self, data):
@@ -653,7 +575,6 @@ class SimEngine:
             self.avoid_state = "none"
             self.avoid_timer = 0.0
             self.pos_history = []
-            self._clear_path()
             self.scan_swept = 0.0
             self.scan_best_d = 0.0
             self.scan_best_th = 0.0
