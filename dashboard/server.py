@@ -613,3 +613,65 @@ def api_set_mode(data: dict):
         raise HTTPException(400, "Hardware not available")
     _mode = new_mode
     return {"mode": _mode}
+
+
+# =========================================================================
+# Scenario runner — runs all scenarios sequentially on the server engine
+# =========================================================================
+
+_scenario_runner_thread = None
+
+_STANDARD = [
+    ("no obstacles", []),
+    ("single r=30", [(400,100,30)]),
+    ("8 wall cluster", [(400,60,12),(400,140,12),(500,80,12),(500,120,12),(600,100,15),(650,70,10),(650,130,10),(400,100,20)]),
+    ("dense 16 S->E", [(641,125,8),(641,92,9),(642,82,13),(644,111,10),(646,10,8),(646,52,10),(651,42,5),(651,101,14),(733,77,8),(733,186,11),(735,97,9),(737,169,9),(740,100,13),(740,172,12),(745,129,12),(749,152,15)]),
+    ("user config", [(567,172,5),(577,122,5),(593,153,13),(618,155,10),(635,86,14),(619,117,8),(719,17,13),(719,44,7),(719,77,8),(719,112,6),(719,130,9)]),
+    ("maze standard", [(250,60,10),(250,80,10),(250,100,10),(250,120,10),(250,140,10),(250,160,10),(250,180,10),(250,200,10),(450,0,10),(450,20,10),(450,40,10),(450,60,10),(450,80,10),(450,100,10),(450,120,10),(450,140,10),(650,60,10),(650,80,10),(650,100,10),(650,120,10),(650,140,10),(650,160,10),(650,180,10),(650,200,10)]),
+    ("maze hard", [(250,50,10),(250,70,10),(250,90,10),(250,110,10),(250,130,10),(250,150,10),(250,170,10),(250,190,10),(450,10,10),(450,30,10),(450,50,10),(450,70,10),(450,90,10),(450,110,10),(450,130,10),(450,150,10),(650,50,10),(650,70,10),(650,90,10),(650,110,10),(650,130,10),(650,150,10),(650,170,10),(650,190,10)]),
+]
+
+_GAP = [
+    ("chicane", [(350,50,10),(350,60,10),(350,70,10),(350,80,10),(350,90,10),(350,100,10),(350,110,10),(350,120,10),(350,130,10),(350,140,10),(550,80,10),(550,90,10),(550,100,10),(550,110,10),(550,120,10),(550,130,10),(550,140,10),(550,150,10),(550,160,10),(550,170,10)]),
+    ("alley 80cm", [(400,60,10),(400,70,10),(400,80,10),(400,90,10),(400,130,10),(400,140,10),(400,150,10),(400,160,10)]),
+    ("barrier top gap", [(250,50,10),(250,70,10),(250,90,10),(250,110,10),(250,130,10),(250,150,10),(250,170,10),(250,190,10)]),
+]
+
+
+def _run_all_scenarios():
+    global _continuous
+    for desc, obstacles in _STANDARD + _GAP:
+        _continuous = False
+        time.sleep(0.1)
+        _engine.scenario_label = desc
+        _engine.reset()
+        _engine.clear_obstacles()
+        _engine.set_goal(start={"x": 30, "y": 100}, end={"x": 960, "y": 100})
+        for ox, oy, r in obstacles:
+            _engine.add_obstacle(ox, oy, r)
+        _engine.set_autopilot(True)
+        _continuous = True
+        deadline = time.time() + 300
+        while time.time() < deadline:
+            s = _engine.get_state()
+            if s["arrived"]:
+                break
+            time.sleep(0.1)
+
+
+@app.post("/api/sim/run_all")
+def api_run_all():
+    global _scenario_runner_thread
+    _ensure_sim()
+    if _scenario_runner_thread and _scenario_runner_thread.is_alive():
+        return {"status": "already_running"}
+    _scenario_runner_thread = threading.Thread(target=_run_all_scenarios, daemon=True)
+    _scenario_runner_thread.start()
+    return {"status": "started"}
+
+
+@app.post("/api/sim/runner_status")
+def api_runner_status():
+    global _scenario_runner_thread
+    running = _scenario_runner_thread is not None and _scenario_runner_thread.is_alive()
+    return {"running": running, "label": _engine.scenario_label}

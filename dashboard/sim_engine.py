@@ -671,9 +671,22 @@ class SimEngine:
             self.avoid_state = "none"
             self.avoid_timer = 0.0
             self._avoid_cooldown = 0.0
+            self._avoid_turn_dir = 1
+            self._turn_target_h = 0.0
+            self._turn_rescored = False
+            self._avoid_cycles = 0
+            self._stuck_positions = []
+            self._reactive_start_x = 0.0
+            self._reactive_start_y = 0.0
+            self._mline_hit_x = 0.0
+            self._mline_hit_y = 0.0
+            self._mline_hit_dist = float("inf")
+            self._drive_min_any = 9999
+            self._last_stuck_time = 0.0
             self.pos_history = []
             self.perim_escaping = False
             self.perim_cooldown = 0.0
+            self._perim_timer = 0.0
             self.left_speed = 0.0
             self.right_speed = 0.0
             return self._build_state()
