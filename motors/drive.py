@@ -28,9 +28,7 @@ class DuckDrive:
         self.right.set_pulse(self._invert(pulse, self.right_invert))
 
     def reverse(self, speed=1.0):
-        pulse = PULSE_NEUTRAL - speed * (PULSE_NEUTRAL - PULSE_MIN)
-        self.left.set_pulse(self._invert(pulse, self.left_invert))
-        self.right.set_pulse(self._invert(pulse, self.right_invert))
+        self.stop()
 
     def turn_left(self, speed=1.0):
         rev = PULSE_NEUTRAL - speed * (PULSE_NEUTRAL - PULSE_MIN)
@@ -51,6 +49,8 @@ class DuckDrive:
     def drive_speeds(self, left_speed, right_speed):
         ls = max(-1.0, min(1.0, left_speed))
         rs = max(-1.0, min(1.0, right_speed))
+        if ls < 0 and rs < 0:
+            ls = rs = 0.0
         lp = int(PULSE_NEUTRAL + ls * (PULSE_MAX - PULSE_NEUTRAL))
         rp = int(PULSE_NEUTRAL + rs * (PULSE_MAX - PULSE_NEUTRAL))
         self.set_raw(self._invert(lp, self.left_invert),

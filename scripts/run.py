@@ -4,15 +4,14 @@ Usage:
     python -m scripts.run              # choose mode interactively
     python -m scripts.run auto         # run auto test sequence
     python -m scripts.run manual       # interactive keyboard control
+    python -m scripts.run calibrate    # ESC calibration wizard
 """
 
 import sys
 import time
-from motors.i2c_drive import I2CDrive
-
-
-def _stop(drive):
-    drive.drive_speeds(0, 0)
+import RPi.GPIO as GPIO
+from motors.drive import DuckDrive
+from navigation.config import LEFT_PIN, RIGHT_PIN
 
 
 def auto_sequence(drive):
@@ -20,12 +19,11 @@ def auto_sequence(drive):
     print("Press Ctrl+C to abort.\n")
 
     steps = [
-        ("Forward 20%", lambda: drive.drive_speeds(0.2, 0.2), 3),
-        ("Stop", lambda: _stop(drive), 1),
-        ("Left pivot", lambda: drive.drive_speeds(0, 0.3), 2),
-        ("Right pivot", lambda: drive.drive_speeds(0.3, 0), 2),
-        ("Forward 40%", lambda: drive.drive_speeds(0.4, 0.4), 3),
-        ("Stop", lambda: _stop(drive), 0),
+        ("Forward 50%", lambda: drive.forward(0.5), 3),
+        ("Stop", drive.stop, 1),
+        ("Left turn 50%", lambda: drive.turn_left(0.5), 2),
+        ("Right turn 50%", lambda: drive.turn_right(0.5), 2),
+        ("Stop", drive.stop, 0),
     ]
 
     try:
@@ -37,29 +35,29 @@ def auto_sequence(drive):
         print("Done!")
     except KeyboardInterrupt:
         print("\nAborted.")
-        _stop(drive)
+        drive.stop()
 
 
 def manual_control(drive):
-    print("\nManual control  (forward only, no reverse)")
-    print("  w = forward   a = left pivot   d = right pivot")
-    print("  q = stop   x = exit")
+    print("\nManual control")
+    print("  w = forward  a = left  d = right")
+    print("  q = stop  x = exit")
     print("  1-9 = speed (1=10%, 9=90%)\n")
 
-    speed = 0.3
+    speed = 0.5
     while True:
         cmd = input("> ").strip().lower()
         if cmd == "w":
-            drive.drive_speeds(speed, speed)
+            drive.forward(speed)
             print(f"  forward @ {int(speed * 100)}%")
         elif cmd == "a":
-            drive.drive_speeds(0, speed)
-            print(f"  left pivot @ {int(speed * 100)}%")
+            drive.turn_left(speed)
+            print(f"  left @ {int(speed * 100)}%")
         elif cmd == "d":
-            drive.drive_speeds(speed, 0)
-            print(f"  right pivot @ {int(speed * 100)}%")
+            drive.turn_right(speed)
+            print(f"  right @ {int(speed * 100)}%")
         elif cmd == "q":
-            _stop(drive)
+            drive.stop()
             print("  stop")
         elif cmd == "x":
             break
@@ -71,25 +69,40 @@ def manual_control(drive):
             print(f"  unknown: {cmd}")
 
 
+def calibrate(drive):
+    print("\n=== ESC CALIBRATION ===")
+    drive.calibrate()
+
+
 def main():
+    GPIO.setmode(GPIO.BCM)
+    GPIO.setwarnings(False)
     mode = sys.argv[1] if len(sys.argv) > 1 else None
 
-    print("DuckBot — Motor Control (I2C)")
-    drive = I2CDrive()
+    print("DuckBot — Motor Control")
+    print(f"  Left ESC  -> GPIO {LEFT_PIN}")
+    print(f"  Right ESC -> GPIO {RIGHT_PIN}")
+
+    drive = DuckDrive(LEFT_PIN, RIGHT_PIN)
 
     try:
         if mode == "auto":
             auto_sequence(drive)
         elif mode == "manual":
             manual_control(drive)
+        elif mode == "calibrate":
+            calibrate(drive)
         else:
-            m = input("\nMode: [a]uto  [m]anual  [q]uit: ").strip().lower()
+            m = input("\nMode: [a]uto  [m]anual  [c]alibrate  [q]uit: ").strip().lower()
             if m == "a":
                 auto_sequence(drive)
             elif m == "m":
                 manual_control(drive)
+            elif m == "c":
+                calibrate(drive)
     finally:
         drive.cleanup()
+        print("GPIO cleaned up.")
 
 
 if __name__ == "__main__":

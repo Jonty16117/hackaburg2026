@@ -263,7 +263,7 @@ class SimEngine:
                 self._mline_hit_y = self.y
                 self._mline_hit_dist = math.hypot(self.x - self.end["x"], self.y - self.end["y"])
                 self.pos_history = []
-                return -self.REVERSE_SPD, -self.REVERSE_SPD
+                return 0.0, 0.0
 
         # Perimeter escape detection
         near = min(self.x, self.PW - self.x, self.y, self.PH - self.y)
@@ -307,7 +307,7 @@ class SimEngine:
                 self._mline_hit_x = self.x
                 self._mline_hit_y = self.y
                 self._mline_hit_dist = math.hypot(self.x - self.end["x"], self.y - self.end["y"])
-                return -self.REVERSE_SPD, -self.REVERSE_SPD
+                return 0.0, 0.0
             turn = clamp(perr * 2, -self.TURN_SP, self.TURN_SP)
             return -turn, turn
 
@@ -318,24 +318,21 @@ class SimEngine:
             turn = clamp(cperr * 2, -self.TURN_SP, self.TURN_SP)
             return -turn, turn
 
-        # Avoid FSM: REVERSE -> TURN -> DRIVE
+        # Avoid FSM: TURN -> DRIVE (reverse removed — replaced with immediate turn)
         if self.avoid_state != "none":
             self.avoid_timer += dt
             if self.avoid_state == "reverse":
-                if self.avoid_timer >= self.AVOID_REVERSE_S:
-                    self.avoid_state = "turn"
-                    self.avoid_timer = 0.0
-                    self._turn_rescored = False
-                    nx, ny = self._nose_position()["x"], self._nose_position()["y"]
-                    goal_th = math.atan2(self.end["y"] - self.y, self.end["x"] - self.x)
-                    if self._avoid_cycles >= 3:
-                        test_offsets = [-math.pi/2, -math.pi/3, -math.pi/6, 0, math.pi/6, math.pi/3, math.pi/2]
-                    else:
-                        test_offsets = [-math.pi/3, -math.pi/6, 0, math.pi/6, math.pi/3]
-                    self._turn_target_h = self._score_headings(test_offsets, nx, ny, goal_th)[0]
-                    self._avoid_turn_dir = 1 if heading_error(self._turn_target_h, self.theta) >= 0 else -1
+                self.avoid_state = "turn"
+                self.avoid_timer = 0.0
+                self._turn_rescored = False
+                nx, ny = self._nose_position()["x"], self._nose_position()["y"]
+                goal_th = math.atan2(self.end["y"] - self.y, self.end["x"] - self.x)
+                if self._avoid_cycles >= 3:
+                    test_offsets = [-math.pi/2, -math.pi/3, -math.pi/6, 0, math.pi/6, math.pi/3, math.pi/2]
                 else:
-                    return -self.REVERSE_SPD, -self.REVERSE_SPD
+                    test_offsets = [-math.pi/3, -math.pi/6, 0, math.pi/6, math.pi/3]
+                self._turn_target_h = self._score_headings(test_offsets, nx, ny, goal_th)[0]
+                self._avoid_turn_dir = 1 if heading_error(self._turn_target_h, self.theta) >= 0 else -1
             if self.avoid_state == "turn":
                 err = heading_error(self._turn_target_h, self.theta)
                 td = 1 if err >= 0 else -1
@@ -410,13 +407,13 @@ class SimEngine:
                     self._last_stuck_time = self.sim_time
                     self.avoid_state = "reverse"
                     self.avoid_timer = 0.0
-                    return -self.REVERSE_SPD, -self.REVERSE_SPD
+                    return 0.0, 0.0
                 if self.avoid_timer > 2.0 and traveled < 5.0:
                     self._avoid_cycles += 1
                     self._last_stuck_time = self.sim_time
                     self.avoid_state = "reverse"
                     self.avoid_timer = 0.0
-                    return -self.REVERSE_SPD, -self.REVERSE_SPD
+                    return 0.0, 0.0
                 # Oscillation detection
                 if self._drive_flip_time > 1.0:
                     if self._drive_steer_flips >= 4:
@@ -424,7 +421,7 @@ class SimEngine:
                         self._last_stuck_time = self.sim_time
                         self.avoid_state = "reverse"
                         self.avoid_timer = 0.0
-                        return -self.REVERSE_SPD, -self.REVERSE_SPD
+                        return 0.0, 0.0
                     self._drive_flip_time = 0.0
                     self._drive_steer_flips = 0
                 # Gap exit: all 3 sensors cleared after being blocked → opening found
@@ -453,7 +450,7 @@ class SimEngine:
                     self._last_stuck_time = self.sim_time
                     self.avoid_state = "reverse"
                     self.avoid_timer = 0.0
-                    return -self.REVERSE_SPD, -self.REVERSE_SPD
+                    return 0.0, 0.0
                 T = self.AVOID_TARGET_DIST_CM
                 if min(sl, sr) < T or (f > 0 and f < T * 2):
                     # Tight space: proportional wall-following
@@ -497,7 +494,7 @@ class SimEngine:
             self._mline_hit_y = self.y
             self._mline_hit_dist = math.hypot(self.x - self.end["x"], self.y - self.end["y"])
             self.pos_history = []
-            return -self.REVERSE_SPD, -self.REVERSE_SPD
+            return 0.0, 0.0
 
         if abs(goal_err) < self.HDG_TOL:
             return self.max_speed, self.max_speed

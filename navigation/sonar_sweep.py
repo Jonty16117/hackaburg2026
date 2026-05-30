@@ -127,29 +127,7 @@ class SonarSweep:
         odom.update(left, right, dt)
 
     def _escape_blind_from_headings(self, odom):
-        avg_phi = 0.0
-        cos_s = sum(math.cos(math.radians(bd)) for bd in self.blind_headings)
-        sin_s = sum(math.sin(math.radians(bd)) for bd in self.blind_headings)
-        avg_phi = math.atan2(sin_s, cos_s)
-
-        reverse_heading = avg_phi + math.pi
-        reverse_heading = math.atan2(
-            math.sin(reverse_heading), math.cos(reverse_heading)
-        )
-
-        reverse_speed = self.sweep_speed * 0.8
-        reverse_time = MAPPER_BLIND_REVERSE_CM / (reverse_speed * MAX_SPEED_CM_S)
-        reverse_time = max(0.5, min(2.0, reverse_time))
-
-        self.drive.drive_speeds(-reverse_speed, -reverse_speed)
-        t0 = time.time()
-        while (time.time() - t0) < reverse_time:
-            time.sleep(0.01)
-
-        self.drive.drive_speeds(0.0, 0.0)
-        time.sleep(0.3)
-
-        odom.update(-reverse_speed, -reverse_speed, reverse_time)
+        time.sleep(0.5)
 
     def _return_to_start(self, odom):
         rem = (360 - self._current_heading_deg) % 360

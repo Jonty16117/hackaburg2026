@@ -24,23 +24,23 @@ def test_obstacle_triggers_avoid():
     b = _brain()
     ls, rs = b.decide(20, 500, 100, 0, 0.05)
     assert b.state == State.AVOID
-    assert ls >= 0
-    assert rs >= 0
+    assert ls == 0
+    assert rs == 0
 
 
 def test_avoid_progresses_through_phases():
     b = _brain()
-    assert b._avoid_phase == _AvoidPhase.TURN_AND_SENSE
+    assert b._avoid_phase == _AvoidPhase.REVERSE
 
     b.decide(20, 500, 100, 0, 0.05)
     assert b.state == State.AVOID
-    assert b._avoid_phase == _AvoidPhase.TURN_AND_SENSE
+    assert b._avoid_phase == _AvoidPhase.REVERSE
 
-    # TURN_AND_SENSE stays active until clear heading found or max scan reached
-    ls, rs = b.decide(20, 500, 100, 0, 0.05)
-    assert b._avoid_phase == _AvoidPhase.TURN_AND_SENSE
-    # Motors are forward-only: one stops, one turns
-    assert ls != rs
+    # TURN_AND_SENSE after sufficient real time
+    import time
+    time.sleep(BRAIN_CFG["AVOID_REVERSE_TIME"] + 0.1)
+    b.decide(20, 500, 100, 0, 0.05)
+    assert b._avoid_phase != _AvoidPhase.REVERSE
 
 
 def test_avoid_cooldown_blocks_retrigger():
