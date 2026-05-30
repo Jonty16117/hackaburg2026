@@ -24,8 +24,8 @@ def test_obstacle_triggers_avoid():
     b = _brain()
     ls, rs = b.decide(20, 500, 100, 0, 0.05)
     assert b.state == State.AVOID
-    assert ls >= 0
-    assert rs >= 0
+    # One wheel stops (negative clamped to stop by I2C drive), the other turns
+    assert ls != rs
 
 
 def test_avoid_progresses_through_phases():
