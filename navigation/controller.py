@@ -42,7 +42,7 @@ def _state_label(brain):
     return brain.state.name
 
 
-def run_navigation(on_cycle=None, paused=None):
+def run_navigation(on_cycle=None, paused=None, stop_event=None):
     import RPi.GPIO as GPIO
     from motors.i2c_drive import I2CDrive
     from sensors.sonar import Sonar
@@ -140,6 +140,9 @@ def run_navigation(on_cycle=None, paused=None):
 
     try:
         while True:
+            if stop_event and stop_event.is_set():
+                print("Nav stop requested — exiting")
+                break
             if paused and paused.is_set():
                 drive.stop()
                 dl = _safe_read(sonar_l)

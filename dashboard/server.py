@@ -89,6 +89,7 @@ _real_lock = threading.Lock()
 _mode = "real" if HAS_HARDWARE else "sim"
 
 _nav_paused = threading.Event()
+_nav_stop = threading.Event()
 if HAS_HARDWARE:
     _nav_paused.set()  # start paused, wait for user to click Start
 
@@ -161,11 +162,20 @@ def _nav_loop():
                 if len(trail) > 2000:
                     trail[:] = trail[-2000:]
 
-    run_navigation(on_cycle=on_cycle, paused=_nav_paused)
+    run_navigation(on_cycle=on_cycle, paused=_nav_paused, stop_event=_nav_stop)
+
+
+def _start_nav():
+    global _nav_t
+    _nav_stop.clear()
+    _nav_paused.set()
+    t = threading.Thread(target=_nav_loop, daemon=True)
+    t.start()
+    _nav_t = t
+
 
 if HAS_HARDWARE:
-    _nav_t = threading.Thread(target=_nav_loop, daemon=True)
-    _nav_t.start()
+    _start_nav()
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -400,7 +410,11 @@ def api_set_pose(data: dict):
 @app.post("/api/duck/reset")
 def api_reset():
     if _mode == "real":
-        _nav_paused.set()
+        _nav_stop.set()
+        _nav_paused.clear()
+        if _nav_t.is_alive():
+            _nav_t.join(timeout=5)
+        time.sleep(0.1)
         with _real_lock:
             _real_state.update(
                 x_cm=float(START_X_CM),
@@ -413,6 +427,7 @@ def api_reset():
                 autopilot=False, avoid_state="none", arrived=False,
                 frame=0, trail=[],
             )
+        _start_nav()
         return {"reset": True, "mode": "real"}
     _ensure_sim()
     return _engine.reset()
