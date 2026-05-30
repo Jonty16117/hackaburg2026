@@ -147,8 +147,6 @@ button:disabled{opacity:0.4;cursor:default}
   var serverMode = 'unknown';
 
   function disableSimControls() {
-    $('btn-auto-start').disabled = true;
-    $('btn-auto-stop').disabled = true;
     $('btn-reset').disabled = true;
     $('btn-clear-obs').disabled = true;
     $('btn-sweep').disabled = true;
@@ -160,8 +158,6 @@ button:disabled{opacity:0.4;cursor:default}
   }
 
   function enableSimControls() {
-    $('btn-auto-start').disabled = false;
-    $('btn-auto-stop').disabled = false;
     $('btn-reset').disabled = false;
     $('btn-clear-obs').disabled = false;
     $('btn-sweep').disabled = false;
@@ -328,7 +324,11 @@ button:disabled{opacity:0.4;cursor:default}
     $('end-label').setAttribute('y', endY - 14);
     // brain label
     elBrain.setAttribute('opacity', (mode === 'real' || s.autopilot) ? '1' : '0');
-    elBrain.textContent = s.brain_state || (s.autopilot ? 'GO' : '');
+    if (mode === 'real' && !s.autopilot) {
+      elBrain.textContent = 'PAUSED';
+    } else {
+      elBrain.textContent = s.brain_state || (s.autopilot ? 'GO' : '');
+    }
     // scenario label
     if (s.scenario_label) {
       elScenario.setAttribute('opacity', '1');

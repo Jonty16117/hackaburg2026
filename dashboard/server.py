@@ -75,7 +75,7 @@ _real_state = {
     "sonar_front": None, "sonar_left": None, "sonar_right": None,
     "brain_state": "IDLE", "avoid_phase": None,
     "inside": True, "edge_cm": 100.0,
-    "autopilot": True, "avoid_state": "none", "arrived": False,
+    "autopilot": False, "avoid_state": "none", "arrived": False,
     "frame": 0, "obstacles": [], "start": {"x": START_X_CM, "y": START_Y_CM},
     "end": {"x": END_X_CM, "y": END_Y_CM},
     "config": {
@@ -87,6 +87,10 @@ _real_state = {
 _real_lock = threading.Lock()
 
 _mode = "real" if HAS_HARDWARE else "sim"
+
+_nav_paused = threading.Event()
+if HAS_HARDWARE:
+    _nav_paused.set()  # start paused, wait for user to click Start
 
 # ---------------------------------------------------------------------------
 # Scenarios (in-memory)
@@ -149,6 +153,7 @@ def _nav_loop():
                 "edge_cm": round(perim.distance_to_edge(data["x"], data["y"]), 1),
                 "walls": data.get("walls"),
                 "frame": _real_state["frame"] + 1,
+                "autopilot": not _nav_paused.is_set(),
             })
             trail = _real_state["trail"]
             if len(trail) == 0 or _real_state["frame"] % 5 == 0:
@@ -156,7 +161,7 @@ def _nav_loop():
                 if len(trail) > 2000:
                     trail[:] = trail[-2000:]
 
-    run_navigation(on_cycle=on_cycle)
+    run_navigation(on_cycle=on_cycle, paused=_nav_paused)
 
 if HAS_HARDWARE:
     _nav_t = threading.Thread(target=_nav_loop, daemon=True)
@@ -420,12 +425,18 @@ def api_set_sonar(data: dict):
 
 @app.post("/api/autopilot/start")
 def api_autopilot_start():
+    if _mode == "real":
+        _nav_paused.clear()
+        return {"autopilot": True, "mode": "real"}
     _ensure_sim()
     return _engine.set_autopilot(True)
 
 
 @app.post("/api/autopilot/stop")
 def api_autopilot_stop():
+    if _mode == "real":
+        _nav_paused.set()
+        return {"autopilot": False, "mode": "real"}
     _ensure_sim()
     return _engine.set_autopilot(False)
 

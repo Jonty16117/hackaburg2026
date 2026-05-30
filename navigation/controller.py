@@ -42,7 +42,7 @@ def _state_label(brain):
     return brain.state.name
 
 
-def run_navigation(on_cycle=None):
+def run_navigation(on_cycle=None, paused=None):
     import RPi.GPIO as GPIO
     from motors.i2c_drive import I2CDrive
     from sensors.sonar import Sonar
@@ -120,6 +120,10 @@ def run_navigation(on_cycle=None):
     print("  Press Ctrl+C to stop.")
     print("=" * 72)
 
+    if paused is not None:
+        print("  Status      : PAUSED — click Start in dashboard to begin")
+        print("=" * 72)
+
     ll, lr = 0.0, 0.0
     lt = time.time()
     last_log = [lt]
@@ -130,6 +134,22 @@ def run_navigation(on_cycle=None):
 
     try:
         while True:
+            if paused and paused.is_set():
+                drive.stop()
+                dl = sonar_l.distance_cm()
+                df = sonar_f.distance_cm()
+                dr = sonar_r.distance_cm()
+                x, y, theta = ekf.get_pose()
+                if on_cycle:
+                    data = dict(
+                        d=None, dl=dl, df=df, dr=dr,
+                        x=x, y=y, theta=theta, ls=0.0, rs=0.0,
+                        brain=brain, perim=perim, walls=wall_map.to_dict(),
+                    )
+                    on_cycle(data)
+                time.sleep(0.1)
+                continue
+
             now = time.time()
             dt = max(now - lt, 0.001)
             lt = now
