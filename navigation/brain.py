@@ -162,6 +162,9 @@ class Brain:
             turned = (self.cfg["SCAN_SPEED"] * self.cfg["MAX_SPEED_CM_S"]
                       / self.cfg["WHEEL_BASE_CM"] * elapsed)
             if turned >= self.cfg["AVOID_MAX_SCAN_RAD"]:
+                if self._max_sonar_seen < self.cfg["AVOID_CLEAR_THRESHOLD_CM"]:
+                    self._transition(State.STUCK)
+                    return self._handle_stuck()
                 self._avoid_phase = _AvoidPhase.FACE_OPENING
                 self._avoid_phase_start = now
 

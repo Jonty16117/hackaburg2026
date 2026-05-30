@@ -399,6 +399,21 @@ def api_set_pose(data: dict):
 
 @app.post("/api/duck/reset")
 def api_reset():
+    if _mode == "real":
+        _nav_paused.set()
+        with _real_lock:
+            _real_state.update(
+                x_cm=float(START_X_CM),
+                y_cm=float(START_Y_CM),
+                theta_rad=float(START_HEADING_RAD),
+                left_speed=0.0, right_speed=0.0,
+                sonar_front=None, sonar_left=None, sonar_right=None,
+                brain_state="IDLE", avoid_phase=None,
+                inside=True, edge_cm=100.0,
+                autopilot=False, avoid_state="none", arrived=False,
+                frame=0, trail=[],
+            )
+        return {"reset": True, "mode": "real"}
     _ensure_sim()
     return _engine.reset()
 
