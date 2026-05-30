@@ -14,7 +14,6 @@ from navigation.config import (
     MAPPER_SWEEP_DEG_STEP,
     MAPPER_SONAR_SAMPLES,
     MAPPER_BLIND_ZONE_CM,
-    MAPPER_BLIND_REVERSE_CM,
 )
 
 MAX_SPEED_CM_S = BRAIN_CFG["MAX_SPEED_CM_S"]
@@ -127,6 +126,7 @@ class SonarSweep:
         odom.update(left, right, dt)
 
     def _escape_blind_from_headings(self, odom):
+        self.drive.drive_speeds(0.0, 0.0)
         time.sleep(0.5)
 
     def _return_to_start(self, odom):
