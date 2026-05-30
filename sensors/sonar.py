@@ -1,3 +1,4 @@
+import math
 import RPi.GPIO as GPIO
 import time
 
@@ -14,27 +15,31 @@ class Sonar:
         time.sleep(0.1)
 
     def distance_cm(self, timeout=0.04):
-        GPIO.output(self.trig, GPIO.HIGH)
-        time.sleep(0.000_01)  # 10us pulse
-        GPIO.output(self.trig, GPIO.LOW)
+        try:
+            GPIO.output(self.trig, GPIO.HIGH)
+            time.sleep(0.000_01)
+            GPIO.output(self.trig, GPIO.LOW)
 
-        pulse_start = time.time()
-        pulse_end = time.time()
-
-        t0 = time.time()
-        while GPIO.input(self.echo) == GPIO.LOW:
             pulse_start = time.time()
-            if pulse_start - t0 > timeout:
-                return None
-
-        t0 = time.time()
-        while GPIO.input(self.echo) == GPIO.HIGH:
             pulse_end = time.time()
-            if pulse_end - t0 > timeout:
-                return None
 
-        duration = pulse_end - pulse_start
-        return (duration * SPEED_OF_SOUND) / 2.0
+            t0 = time.time()
+            while GPIO.input(self.echo) == GPIO.LOW:
+                pulse_start = time.time()
+                if pulse_start - t0 > timeout:
+                    return None
+
+            t0 = time.time()
+            while GPIO.input(self.echo) == GPIO.HIGH:
+                pulse_end = time.time()
+                if pulse_end - t0 > timeout:
+                    return None
+
+            duration = pulse_end - pulse_start
+            d = (duration * SPEED_OF_SOUND) / 2.0
+            return round(d, 1) if d is not None and math.isfinite(d) else None
+        except Exception:
+            return None
 
     def cleanup(self):
         GPIO.cleanup([self.trig, self.echo])

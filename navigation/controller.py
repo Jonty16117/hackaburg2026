@@ -132,13 +132,19 @@ def run_navigation(on_cycle=None, paused=None):
     _x_correction_start = 0.0
     _x_correction_timeout = 6.0
 
+    def _safe_read(s):
+        try:
+            return s.distance_cm()
+        except Exception:
+            return None
+
     try:
         while True:
             if paused and paused.is_set():
                 drive.stop()
-                dl = sonar_l.distance_cm()
-                df = sonar_f.distance_cm()
-                dr = sonar_r.distance_cm()
+                dl = _safe_read(sonar_l)
+                df = _safe_read(sonar_f)
+                dr = _safe_read(sonar_r)
                 x, y, theta = ekf.get_pose()
                 if on_cycle:
                     data = dict(
@@ -157,9 +163,11 @@ def run_navigation(on_cycle=None, paused=None):
             odom.update(ll, lr, dt)
             ekf.predict(ll, lr, dt)
 
-            dl = sonar_l.distance_cm()
-            df = sonar_f.distance_cm()
-            dr = sonar_r.distance_cm()
+            dl = _safe_read(sonar_l)
+            time.sleep(0.02)
+            df = _safe_read(sonar_f)
+            time.sleep(0.02)
+            dr = _safe_read(sonar_r)
             valid = [v for v in (dl, df, dr) if v is not None]
             d = min(valid) if valid else None
             if d is not None:
