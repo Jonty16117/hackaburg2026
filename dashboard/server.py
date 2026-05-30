@@ -119,7 +119,6 @@ def _nav_loop():
     from navigation.brain import State
 
     def on_cycle(data):
-        d = data["d"]
         brain = data["brain"]
         perim = data["perim"]
         bstate = "IDLE"
@@ -136,7 +135,9 @@ def _nav_loop():
                 "theta_rad": round(data["theta"], 4),
                 "left_speed": round(data["ls"], 4),
                 "right_speed": round(data["rs"], 4),
-                "sonar_front": round(d, 1) if d is not None else None,
+                "sonar_left": round(data["dl"], 1) if data["dl"] is not None else None,
+                "sonar_front": round(data["df"], 1) if data["df"] is not None else None,
+                "sonar_right": round(data["dr"], 1) if data["dr"] is not None else None,
                 "brain_state": bstate,
                 "avoid_phase": ap,
                 "inside": perim.is_inside(data["x"], data["y"]),

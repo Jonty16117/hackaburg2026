@@ -12,8 +12,9 @@ import time
 
 from motors.i2c_drive import I2C_ADDR, I2C_BUS
 from navigation.config import (
-    SONAR_TRIG, SONAR_ECHO,
-    SONAR2_TRIG, SONAR2_ECHO,
+    SONAR_L_TRIG, SONAR_L_ECHO,
+    SONAR_F_TRIG, SONAR_F_ECHO,
+    SONAR_R_TRIG, SONAR_R_ECHO,
     PERIMETER_CM, START_X_CM, START_Y_CM, START_HEADING_RAD,
     END_X_CM, END_Y_CM, BRAIN_CFG, MAPPER_TOGGLE,
     MAPPER_SWEEP_SPEED, MAPPER_SWEEP_DEG_STEP, MAPPER_SONAR_SAMPLES,
@@ -28,6 +29,7 @@ from navigation.utils import heading_error
 
 
 AVOID_PHASE_LABELS = {
+    _AvoidPhase.REVERSE:         "AVOID:REV",
     _AvoidPhase.TURN_AND_SENSE:  "AVOID:SCAN",
     _AvoidPhase.FACE_OPENING:    "AVOID:FACE",
     _AvoidPhase.REACTIVE_DRIVE:  "AVOID:DRIVE",
@@ -50,9 +52,10 @@ def run_navigation(on_cycle=None):
     GPIO.setwarnings(False)
 
     drive = I2CDrive()
-    sonar_left = Sonar(SONAR_TRIG, SONAR_ECHO)
-    sonar_right = Sonar(SONAR2_TRIG, SONAR2_ECHO)
-    sonars = [sonar_left, sonar_right]
+    sonar_l = Sonar(SONAR_L_TRIG, SONAR_L_ECHO)
+    sonar_f = Sonar(SONAR_F_TRIG, SONAR_F_ECHO)
+    sonar_r = Sonar(SONAR_R_TRIG, SONAR_R_ECHO)
+    sonars = [sonar_l, sonar_f, sonar_r]
     odom = Odometry(START_X_CM, START_Y_CM, START_HEADING_RAD,
                     BRAIN_CFG["WHEEL_BASE_CM"], BRAIN_CFG["MAX_SPEED_CM_S"])
 
@@ -66,7 +69,7 @@ def run_navigation(on_cycle=None):
         print("=" * 60)
         try:
             sweeper = SonarSweep(
-                drive, sonar_left,
+                drive, sonar_f,
                 sweep_speed=MAPPER_SWEEP_SPEED,
                 step_deg=MAPPER_SWEEP_DEG_STEP,
                 sonar_samples=MAPPER_SONAR_SAMPLES,
@@ -109,8 +112,9 @@ def run_navigation(on_cycle=None):
     print(f"  Start pose  : ({START_X_CM}, {START_Y_CM})  "
           f"@{math.degrees(START_HEADING_RAD):.0f}°")
     print(f"  End          : ({END_X_CM}, {END_Y_CM})")
-    print(f"  Sonar 1(FL): TRIG=GPIO{SONAR_TRIG}  ECHO=GPIO{SONAR_ECHO}")
-    print(f"  Sonar 2(FR): TRIG=GPIO{SONAR2_TRIG}  ECHO=GPIO{SONAR2_ECHO}")
+    print(f"  Sonar (L): TRIG=GPIO{SONAR_L_TRIG}  ECHO=GPIO{SONAR_L_ECHO}")
+    print(f"  Sonar (F): TRIG=GPIO{SONAR_F_TRIG}  ECHO=GPIO{SONAR_F_ECHO}")
+    print(f"  Sonar (R): TRIG=GPIO{SONAR_R_TRIG}  ECHO=GPIO{SONAR_R_ECHO}")
     print(f"  Motors      : I2C addr=0x{I2C_ADDR:02X}  bus={I2C_BUS}")
     print(f"  Loop rate   : {BRAIN_CFG['LOOP_HZ']} Hz")
     print("  Press Ctrl+C to stop.")
@@ -133,9 +137,10 @@ def run_navigation(on_cycle=None):
             odom.update(ll, lr, dt)
             ekf.predict(ll, lr, dt)
 
-            d1 = sonar_left.distance_cm()
-            d2 = sonar_right.distance_cm()
-            valid = [v for v in (d1, d2) if v is not None]
+            dl = sonar_l.distance_cm()
+            df = sonar_f.distance_cm()
+            dr = sonar_r.distance_cm()
+            valid = [v for v in (dl, df, dr) if v is not None]
             d = min(valid) if valid else None
             if d is not None:
                 ekf.correct(d)
@@ -145,7 +150,7 @@ def run_navigation(on_cycle=None):
                 print("\n EKF lost while idle — re-running sweep...")
                 try:
                     sweeper = SonarSweep(
-                        drive, sonar_left,
+                        drive, sonar_f,
                         sweep_speed=MAPPER_SWEEP_SPEED,
                         step_deg=MAPPER_SWEEP_DEG_STEP,
                         sonar_samples=MAPPER_SONAR_SAMPLES,
@@ -205,7 +210,8 @@ def run_navigation(on_cycle=None):
 
             if on_cycle:
                 data = dict(
-                    d=d, x=x, y=y, theta=theta, ls=ls, rs=rs,
+                    d=d, dl=dl, df=df, dr=dr,
+                    x=x, y=y, theta=theta, ls=ls, rs=rs,
                     brain=brain, perim=perim, walls=wall_map.to_dict(),
                 )
                 on_cycle(data)
@@ -214,8 +220,9 @@ def run_navigation(on_cycle=None):
             if now2 - last_log[0] >= 0.5:
                 last_log[0] = now2
                 d_str = f"{d:5.0f}" if d is not None else "  ---"
-                d1s = f"{d1:4.0f}" if d1 is not None else " ---"
-                d2s = f"{d2:4.0f}" if d2 is not None else " ---"
+                dls = f"{dl:4.0f}" if dl is not None else " ---"
+                dfs = f"{df:4.0f}" if df is not None else " ---"
+                drs = f"{dr:4.0f}" if dr is not None else " ---"
                 inside = perim.is_inside(x, y)
                 edge = perim.distance_to_edge(x, y)
                 flag = ""
@@ -229,7 +236,7 @@ def run_navigation(on_cycle=None):
                     f"[{label:>14}] "
                     f"x={x:7.1f} y={y:7.1f} "
                     f"θ={math.degrees(theta):6.1f}° "
-                    f"s1={d1s} s2={d2s} min={d_str}cm "
+                    f"sL={dls} sF={dfs} sR={drs} min={d_str}cm "
                     f"L={ls:+.2f} R={rs:+.2f}"
                     f"{flag}"
                 )
