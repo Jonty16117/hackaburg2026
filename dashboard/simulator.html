@@ -175,6 +175,7 @@ button:disabled{opacity:0.4;cursor:default}
     $('btn-sim').classList.remove('active');
     $('conn-row').style.display = 'none';
     disableSimControls();
+    $('btn-reset').disabled = false;
     if (ws) { ws.close(); ws = null; }
     connectSSE();
   }
