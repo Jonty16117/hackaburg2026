@@ -15,14 +15,14 @@ def test_initial_state():
 
 def test_explore_drives_forward():
     b = _brain()
-    ls, rs = b.decide(500, 500, 100, 0, 0.05)
+    ls, rs = b.decide(500, 500, 500, 500, 100, 0, 0.05)
     assert ls > 0
     assert rs > 0
 
 
 def test_obstacle_triggers_avoid():
     b = _brain()
-    ls, rs = b.decide(20, 500, 100, 0, 0.05)
+    ls, rs = b.decide(9999, 20, 9999, 500, 100, 0, 0.05)
     assert b.state == State.AVOID
     assert ls == 0
     assert rs == 0
@@ -32,37 +32,37 @@ def test_avoid_progresses_through_phases():
     b = _brain()
     assert b._avoid_phase == _AvoidPhase.REVERSE
 
-    b.decide(20, 500, 100, 0, 0.05)
+    b.decide(9999, 20, 9999, 500, 100, 0, 0.05)
     assert b.state == State.AVOID
     assert b._avoid_phase == _AvoidPhase.REVERSE
 
     # TURN_AND_SENSE after sufficient real time
     import time
     time.sleep(BRAIN_CFG["AVOID_REVERSE_TIME"] + 0.1)
-    b.decide(20, 500, 100, 0, 0.05)
+    b.decide(9999, 20, 9999, 500, 100, 0, 0.05)
     assert b._avoid_phase != _AvoidPhase.REVERSE
 
 
 def test_avoid_cooldown_blocks_retrigger():
     b = _brain()
-    b.decide(20, 500, 100, 0, 0.05)
+    b.decide(9999, 20, 9999, 500, 100, 0, 0.05)
     assert b.state == State.AVOID
 
     b._avoid_cooldown = 1.0
     b.state = State.EXPLORE
-    ls, rs = b.decide(20, 500, 100, 0, 0.05)
+    ls, rs = b.decide(9999, 20, 9999, 500, 100, 0, 0.05)
     assert b.state == State.EXPLORE
 
 
 def test_perimeter_triggers_turn_to_center():
     b = _brain()
-    ls, rs = b.decide(500, 0, 0, 0, 0.05)
+    ls, rs = b.decide(500, 500, 500, 0, 0, 0, 0.05)
     assert b.state == State.TURN_TO_CENTER
 
 
 def test_perimeter_near_edge_triggers_turn_to_center():
     b = _brain()
-    ls, rs = b.decide(500, 5, 100, 0, 0.05)
+    ls, rs = b.decide(500, 500, 500, 5, 100, 0, 0.05)
     assert b.state == State.TURN_TO_CENTER
 
 
@@ -70,7 +70,7 @@ def test_stuck_detection():
     b = _brain()
     for _ in range(BRAIN_CFG["STUCK_THRESHOLD_COUNT"]):
         b._avoid_history.append(0)
-    ls, rs = b.decide(20, 500, 100, 0, 0.05)
+    ls, rs = b.decide(9999, 20, 9999, 500, 100, 0, 0.05)
     assert b.state == State.STUCK
 
 
@@ -86,7 +86,7 @@ def test_stuck_escapes_after_time():
 def test_sonar_failure_reduces_speed():
     b = _brain()
     b._sonar_fail_count = BRAIN_CFG["SONAR_FAIL_THRESHOLD"] + 1
-    ls, rs = b._handle_explore(0.05)
+    ls, rs = b._handle_explore(0.05, 500, 500, 500)
     assert abs(ls) < BRAIN_CFG["EXPLORE_SPEED"]
 
 
@@ -95,5 +95,47 @@ def test_explore_has_jitter():
     b = _brain()
     b._explore_jitter_timer = BRAIN_CFG["EXPLORE_JITTER_TIME"] + 1
     initial_bias = b._explore_jitter_bias
-    ls, rs = b._handle_explore(0.05)
+    ls, rs = b._handle_explore(0.05, 500, 500, 500)
     assert ls != rs
+
+
+def test_look_ahead_steers_left_when_left_clearer():
+    b = _brain()
+    b._explore_jitter_timer = 0
+    b._explore_jitter_bias = 0.01
+    ls, rs = b._handle_explore(0.05, 300, 100, 20)
+    assert ls < rs
+
+
+def test_look_ahead_steers_right_when_right_clearer():
+    b = _brain()
+    b._explore_jitter_timer = 0
+    b._explore_jitter_bias = 0.01
+    ls, rs = b._handle_explore(0.05, 20, 100, 300)
+    assert ls > rs
+
+
+def test_look_ahead_slows_down_when_both_sides_similar():
+    b = _brain()
+    b._explore_jitter_timer = 0
+    b._explore_jitter_bias = 0.01
+    ls, rs = b._handle_explore(0.05, 60, 100, 70)
+    assert abs(ls) < b.cfg["EXPLORE_SPEED"]
+    assert abs(rs) < b.cfg["EXPLORE_SPEED"]
+
+
+def test_look_ahead_ignored_when_front_far():
+    b = _brain()
+    b._explore_jitter_timer = 0
+    b._explore_jitter_bias = 0.01
+    ls, rs = b._handle_explore(0.05, 20, 200, 300)
+    assert abs(ls - b.cfg["EXPLORE_SPEED"]) < 0.15
+    assert abs(rs - b.cfg["EXPLORE_SPEED"]) < 0.15
+
+
+def test_look_ahead_ignored_when_side_missing():
+    b = _brain()
+    b._explore_jitter_timer = 0
+    b._explore_jitter_bias = 0.01
+    ls, rs = b._handle_explore(0.05, None, 80, 200)
+    assert abs(ls - b.cfg["EXPLORE_SPEED"]) < 0.15

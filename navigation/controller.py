@@ -193,7 +193,7 @@ def run_navigation(on_cycle=None):
                     drive.drive_speeds(ls, rs)
                     ll, lr = ls, rs
             else:
-                ls, rs = brain.decide(d, x, y, theta, dt)
+                ls, rs = brain.decide(dl, df, dr, x, y, theta, dt)
 
                 if ekf.needs_x_correction():
                     no_obstacle = d is None or d > BRAIN_CFG["OBSTACLE_THRESHOLD_CM"]

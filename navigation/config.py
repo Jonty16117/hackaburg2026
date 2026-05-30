@@ -33,7 +33,7 @@ DUCK_RADIUS_CM = 15
 def compute_obstacle_threshold(cfg):
     reaction_cm = (cfg["EXPLORE_SPEED"] * cfg["MAX_SPEED_CM_S"]) / cfg["LOOP_HZ"]
     distance_cm = SONAR_BLIND_ZONE_CM + 3 + reaction_cm
-    return max(25, round(distance_cm))
+    return max(40, round(distance_cm))
 
 
 BRAIN_CFG = {
@@ -42,14 +42,15 @@ BRAIN_CFG = {
     "TURN_SPEED": 0.5,
     "AVOID_REVERSE_SPEED": 0.5,
     "SCAN_SPEED": 0.4,
-    "AVOID_REVERSE_TIME": 0.3,
-    "AVOID_COOLDOWN_TIME": 0.5,
-    "AVOID_CLEAR_THRESHOLD_CM": 100,
-    "AVOID_MAX_SCAN_RAD": 1.57,
+    "AVOID_REVERSE_TIME": 0.5,
+    "AVOID_COOLDOWN_TIME": 1.5,
+    "AVOID_CLEAR_THRESHOLD_CM": 60,
+    "AVOID_MAX_SCAN_RAD": 2.09,
     "AVOID_REACTIVE_KP": 0.003,
     "AVOID_TARGET_DIST_CM": 30,
     "AVOID_REACTIVE_FWD_SPEED": 0.3,
-    "AVOID_REACTIVE_TIMEOUT": 30.0,
+    "AVOID_REACTIVE_TIMEOUT": 6.0,
+    "LOOK_AHEAD_CM": 120,
     "GOAL_X": END_X_CM,
     "GOAL_Y": END_Y_CM,
     "STUCK_THRESHOLD_COUNT": 3,

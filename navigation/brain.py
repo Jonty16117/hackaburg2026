@@ -21,6 +21,11 @@ class _AvoidPhase(Enum):
     REACTIVE_DRIVE = auto()
 
 
+def _fuse_sonar(sl, sf, sr):
+    valid = [v for v in (sl, sf, sr) if v is not None]
+    return min(valid) if valid else None
+
+
 class Brain:
     def __init__(self, perimeter, cfg, goal_x=None, goal_y=None):
         self.perimeter = perimeter
@@ -68,7 +73,8 @@ class Brain:
             cutoff = now - self.cfg["STUCK_WINDOW_TIME"]
             self._avoid_history = [t for t in self._avoid_history if t > cutoff]
 
-    def decide(self, sonar_cm, x, y, theta, dt):
+    def decide(self, sl, sf, sr, x, y, theta, dt):
+        sonar_cm = _fuse_sonar(sl, sf, sr)
         if sonar_cm is not None:
             self._sonar_fail_count = 0
         else:
@@ -78,7 +84,7 @@ class Brain:
             return self._handle_stuck()
 
         if self.state == State.AVOID:
-            return self._handle_avoid(sonar_cm, x, y, theta, dt)
+            return self._handle_avoid(sonar_cm, sl, sf, sr, x, y, theta, dt)
 
         if self._avoid_cooldown > 0:
             self._avoid_cooldown = max(0, self._avoid_cooldown - dt)
@@ -92,7 +98,7 @@ class Brain:
                 self._transition(State.STUCK)
                 return self._handle_stuck()
             self._transition(State.AVOID)
-            return self._handle_avoid(sonar_cm, x, y, theta, dt)
+            return self._handle_avoid(sonar_cm, sl, sf, sr, x, y, theta, dt)
 
         if not self.perimeter.is_inside(x, y) or self.perimeter.is_near_edge(
             x, y, self.cfg["PERIMETER_MARGIN_CM"]
@@ -103,9 +109,9 @@ class Brain:
         if self.state == State.TURN_TO_CENTER:
             return self._handle_turn_to_center(x, y, theta)
 
-        return self._handle_explore(dt)
+        return self._handle_explore(dt, sl, sf, sr)
 
-    def _handle_explore(self, dt):
+    def _handle_explore(self, dt, sl, sf, sr):
         self._explore_jitter_timer += dt
         if self._explore_jitter_timer > self.cfg["EXPLORE_JITTER_TIME"]:
             self._explore_jitter_timer = 0
@@ -114,15 +120,25 @@ class Brain:
                 self.cfg["EXPLORE_JITTER_AMOUNT"],
             )
 
+        bias = self._explore_jitter_bias
         speed = self.cfg["EXPLORE_SPEED"]
+
+        # Pre-emptive steering: use side sonars to bias away from obstacles
+        if (sf is not None and sl is not None and sr is not None
+                and sf < self.cfg["LOOK_AHEAD_CM"]):
+            if sl > sr + 30:
+                bias = self.cfg["EXPLORE_JITTER_AMOUNT"] * 2
+            elif sr > sl + 30:
+                bias = -self.cfg["EXPLORE_JITTER_AMOUNT"] * 2
+            else:
+                speed *= 0.5
+
         if self._sonar_fail_count > self.cfg["SONAR_FAIL_THRESHOLD"]:
             speed *= self.cfg["SONAR_FAIL_SPEED_SCALE"]
 
-        left_speed = speed - self._explore_jitter_bias
-        right_speed = speed + self._explore_jitter_bias
-        return left_speed, right_speed
+        return speed - bias, speed + bias
 
-    def _handle_avoid(self, sonar_cm, x, y, theta, dt):
+    def _handle_avoid(self, sonar_cm, sl, sf, sr, x, y, theta, dt):
         elapsed = self.avoid_phase_timer
         now = _time.time()
 
@@ -168,39 +184,39 @@ class Brain:
             self._reactive_start = now
         reactive_elapsed = now - self._reactive_start
 
+        # Obstacle closing in again — re-scan immediately
+        if (sonar_cm is not None
+                and sonar_cm < self.cfg["OBSTACLE_THRESHOLD_CM"]):
+            self._avoid_phase = _AvoidPhase.TURN_AND_SENSE
+            self._avoid_phase_start = now
+            self._max_sonar_seen = 0.0
+            self._best_heading = None
+            self._reactive_start = 0.0
+            return (0.0, 0.0)
+
         # Exit: clear path ahead and roughly facing goal
         if (sonar_cm is not None
-                and sonar_cm > self.cfg["AVOID_CLEAR_THRESHOLD_CM"] * 2
+                and sonar_cm > self.cfg["AVOID_CLEAR_THRESHOLD_CM"]
                 and self.goal_x is not None and self.goal_y is not None):
             goal_th = math.atan2(self.goal_y - y, self.goal_x - x)
             err = heading_error(goal_th, theta)
             if abs(err) < self.cfg["HEADING_TOLERANCE_RAD"] * 2:
                 self._transition(State.EXPLORE)
                 self._avoid_cooldown = self.cfg["AVOID_COOLDOWN_TIME"]
-                return self._handle_explore(dt)
+                return self._handle_explore(dt, sl, sf, sr)
 
-        # Timeout fallback: exit anyway
+        # Timeout fallback: drive burst over, re-scan
         if reactive_elapsed >= self.cfg["AVOID_REACTIVE_TIMEOUT"]:
-            self._transition(State.EXPLORE)
-            self._avoid_cooldown = self.cfg["AVOID_COOLDOWN_TIME"]
-            return self._handle_explore(dt)
+            self._avoid_phase = _AvoidPhase.TURN_AND_SENSE
+            self._avoid_phase_start = now
+            self._max_sonar_seen = 0.0
+            self._best_heading = None
+            self._reactive_start = 0.0
+            return (0.0, 0.0)
 
-        # Sonar lost mid-avoid: drive straight slowly
-        if sonar_cm is None or sonar_cm <= self.cfg.get("SONAR_BLIND_ZONE_CM", 20):
-            fwd = self.cfg["AVOID_REACTIVE_FWD_SPEED"]
-            return (fwd, fwd)
-
-        # Proportional reactive steering
-        error = sonar_cm - self.cfg["AVOID_TARGET_DIST_CM"]
+        # Straight drive forward (I2C has no variable speed)
         fwd = self.cfg["AVOID_REACTIVE_FWD_SPEED"]
-        kp = self.cfg["AVOID_REACTIVE_KP"]
-        left = fwd + kp * error
-        right = fwd - kp * error
-        left = max(0.0,
-                   min(self.cfg["AVOID_REACTIVE_FWD_SPEED"] * 2, left))
-        right = max(0.0,
-                    min(self.cfg["AVOID_REACTIVE_FWD_SPEED"] * 2, right))
-        return (left, right)
+        return (fwd, fwd)
 
     def _handle_turn_to_center(self, x, y, theta):
         bearing = self.perimeter.bearing_to_center(x, y)
