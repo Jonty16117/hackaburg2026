@@ -42,7 +42,7 @@ def _state_label(brain):
     return brain.state.name
 
 
-def run_navigation(on_cycle=None, paused=None, stop_event=None):
+def run_navigation(on_cycle=None, paused=None, stop_event=None, cleanup_gpio=True):
     import RPi.GPIO as GPIO
     from motors.i2c_drive import I2CDrive
     from sensors.sonar import Sonar
@@ -280,7 +280,8 @@ def run_navigation(on_cycle=None, paused=None, stop_event=None):
         drive.cleanup()
         for s in sonars:
             s.cleanup()
-        GPIO.cleanup()
+        if cleanup_gpio:
+            GPIO.cleanup()
 
 
 def main():

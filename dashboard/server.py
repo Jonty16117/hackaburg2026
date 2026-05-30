@@ -162,7 +162,7 @@ def _nav_loop():
                 if len(trail) > 2000:
                     trail[:] = trail[-2000:]
 
-    run_navigation(on_cycle=on_cycle, paused=_nav_paused, stop_event=_nav_stop)
+    run_navigation(on_cycle=on_cycle, paused=_nav_paused, stop_event=_nav_stop, cleanup_gpio=False)
 
 
 def _start_nav():
@@ -414,6 +414,9 @@ def api_reset():
         _nav_paused.clear()
         if _nav_t.is_alive():
             _nav_t.join(timeout=5)
+        time.sleep(0.2)
+        import RPi.GPIO as GPIO
+        GPIO.cleanup()
         time.sleep(0.1)
         with _real_lock:
             _real_state.update(
