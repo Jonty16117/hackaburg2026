@@ -81,11 +81,11 @@ button:disabled{opacity:0.4;cursor:default}
   <div class="mode">
     <button id="btn-sim" class="active">SIM</button>
     <button id="btn-real">REAL</button>
+    <span id="ws-stat" class="ws-status ws-off">off</span>
   </div>
   <div id="conn-row" class="conn-row" style="display:none">
     <input id="pi-ip" placeholder="Pi IP" value="192.168.4.1" size="14">
     <button id="btn-connect" class="btn-neutral" style="width:80px">Connect</button>
-    <span id="ws-stat" class="ws-status ws-off">off</span>
   </div>
 
   <h2>Sensors (cm)</h2>
@@ -144,6 +144,44 @@ button:disabled{opacity:0.4;cursor:default}
   var startX = 500, startY = 100, endX = 900, endY = 100;
   var mode = 'sim', dragging = null;
   var wsConnected = false;
+  var serverMode = 'unknown';
+
+  function disableSimControls() {
+    $('btn-auto-start').disabled = true;
+    $('btn-auto-stop').disabled = true;
+    $('btn-reset').disabled = true;
+    $('btn-clear-obs').disabled = true;
+    $('btn-sweep').disabled = true;
+    $('btn-hide-walls').disabled = true;
+    slF.disabled = true;
+    slL.disabled = true;
+    slR.disabled = true;
+    slSpd.disabled = true;
+  }
+
+  function enableSimControls() {
+    $('btn-auto-start').disabled = false;
+    $('btn-auto-stop').disabled = false;
+    $('btn-reset').disabled = false;
+    $('btn-clear-obs').disabled = false;
+    $('btn-sweep').disabled = false;
+    $('btn-hide-walls').disabled = false;
+    slF.disabled = false;
+    slL.disabled = false;
+    slR.disabled = false;
+    slSpd.disabled = false;
+  }
+
+  function initRealMode() {
+    mode = 'real';
+    serverMode = 'real';
+    $('btn-real').classList.add('active');
+    $('btn-sim').classList.remove('active');
+    $('conn-row').style.display = 'none';
+    disableSimControls();
+    if (ws) { ws.close(); ws = null; }
+    connectSSE();
+  }
 
   // --- DOM refs ---
   var svm = $('map'),
@@ -289,7 +327,7 @@ button:disabled{opacity:0.4;cursor:default}
     $('end-label').setAttribute('x', endX);
     $('end-label').setAttribute('y', endY - 14);
     // brain label
-    elBrain.setAttribute('opacity', s.autopilot ? '1' : '0');
+    elBrain.setAttribute('opacity', (mode === 'real' || s.autopilot) ? '1' : '0');
     elBrain.textContent = s.brain_state || (s.autopilot ? 'GO' : '');
     // scenario label
     if (s.scenario_label) {
@@ -429,23 +467,65 @@ button:disabled{opacity:0.4;cursor:default}
     ws.onerror = function() {};
   }
 
-  // --- mode switching ---
+  // --- SSE connection (REAL mode) ---
   var es = null;
+  function connectSSE() {
+    if (es) { es.close(); es = null; }
+    es = new EventSource('http://' + location.host + '/stream');
+    es.onopen = function(){
+      $('ws-stat').className = 'ws-status ws-on';
+      $('ws-stat').textContent = 'live';
+    };
+    es.onmessage = function(e){
+      var s = JSON.parse(e.data);
+      updateFromServer(s);
+    };
+    es.onerror = function(){
+      $('ws-stat').className = 'ws-status ws-off';
+      $('ws-stat').textContent = 'lost';
+      if (es) { es.close(); es = null; }
+      setTimeout(connectSSE, 2000);
+    };
+  }
+
+  // --- mode switching ---
   $('btn-sim').onclick = function(){
+    if (serverMode === 'real') {
+      fetch('/api/mode', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({mode:'sim'})})
+      .then(function(r){return r.json()})
+      .then(function(){
+        mode='sim';
+        this.classList.add('active'); $('btn-real').classList.remove('active');
+        $('conn-row').style.display='none';
+        enableSimControls();
+        if (es) { es.close(); es = null; }
+        connectWS();
+      }.bind(this)).catch(function(){});
+      return;
+    }
     mode='sim'; this.classList.add('active'); $('btn-real').classList.remove('active');
-    $('conn-row').style.display='none'; $('btn-auto-start').disabled=false; $('btn-auto-stop').disabled=false;
-    slF.disabled=false; slL.disabled=false; slR.disabled=false;
+    $('conn-row').style.display='none'; enableSimControls();
     if (es) { es.close(); es=null; }
     $('ws-stat').className='ws-status ws-off'; $('ws-stat').textContent='ws off';
     wsConnected = false;
-    // Connect WS after short delay
     setTimeout(connectWS, 100);
   };
   $('btn-real').onclick = function(){
+    if (serverMode === 'real') {
+      fetch('/api/mode', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({mode:'real'})})
+      .then(function(r){return r.json()})
+      .then(function(){
+        mode='real';
+        this.classList.add('active'); $('btn-sim').classList.remove('active');
+        $('conn-row').style.display='none';
+        disableSimControls();
+        if (ws) { ws.close(); ws = null; }
+        connectSSE();
+      }.bind(this)).catch(function(){});
+      return;
+    }
     mode='real'; this.classList.add('active'); $('btn-sim').classList.remove('active');
-    $('conn-row').style.display='flex';
-    $('btn-auto-start').disabled=true; $('btn-auto-stop').disabled=true;
-    slF.disabled=true; slL.disabled=true; slR.disabled=true;
+    $('conn-row').style.display='flex'; disableSimControls();
     if (ws) { ws.close(); ws=null; }
   };
 
@@ -497,6 +577,18 @@ button:disabled{opacity:0.4;cursor:default}
     if (cfg.sim && cfg.sim.ARRIVAL) duckR = cfg.sim.DUCK_R || 15;
     slSpd.value = (cfg.sim && cfg.sim.max_speed) || 0.6;
     $('v-speed').textContent = slSpd.value;
+    if (cfg.start) {
+      startX = cfg.start.x; startY = cfg.start.y;
+      duck.x = startX; duck.y = startY;
+    }
+    if (cfg.end) {
+      endX = cfg.end.x; endY = cfg.end.y;
+    }
+  }).catch(function(){});
+
+  // --- detect server mode on load ---
+  fetch('/api/mode').then(function(r){return r.json()}).then(function(info){
+    if (info.mode === 'real') initRealMode();
   }).catch(function(){});
 
   // --- start ---

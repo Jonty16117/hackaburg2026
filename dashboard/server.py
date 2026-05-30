@@ -75,11 +75,14 @@ _real_state = {
     "sonar_front": None, "sonar_left": None, "sonar_right": None,
     "brain_state": "IDLE", "avoid_phase": None,
     "inside": True, "edge_cm": 100.0,
-    "autopilot": False, "avoid_state": "none", "arrived": False,
+    "autopilot": True, "avoid_state": "none", "arrived": False,
     "frame": 0, "obstacles": [], "start": {"x": START_X_CM, "y": START_Y_CM},
     "end": {"x": END_X_CM, "y": END_Y_CM},
-    "config": {},
+    "config": {
+        "PW": 1000, "PH": 200, "DUCK_R": 15,
+    },
     "walls": None,
+    "trail": [],
 }
 _real_lock = threading.Lock()
 
@@ -129,9 +132,11 @@ def _nav_loop():
             ap = brain._avoid_phase.name if brain._avoid_phase else None
 
         with _real_lock:
+            x = round(data["x"], 1)
+            y = round(data["y"], 1)
             _real_state.update({
-                "x_cm": round(data["x"], 1),
-                "y_cm": round(data["y"], 1),
+                "x_cm": x,
+                "y_cm": y,
                 "theta_rad": round(data["theta"], 4),
                 "left_speed": round(data["ls"], 4),
                 "right_speed": round(data["rs"], 4),
@@ -143,7 +148,13 @@ def _nav_loop():
                 "inside": perim.is_inside(data["x"], data["y"]),
                 "edge_cm": round(perim.distance_to_edge(data["x"], data["y"]), 1),
                 "walls": data.get("walls"),
+                "frame": _real_state["frame"] + 1,
             })
+            trail = _real_state["trail"]
+            if len(trail) == 0 or _real_state["frame"] % 5 == 0:
+                trail.append({"x": x, "y": y})
+                if len(trail) > 2000:
+                    trail[:] = trail[-2000:]
 
     run_navigation(on_cycle=on_cycle)
 
